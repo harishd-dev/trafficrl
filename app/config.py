@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import os
 
 
 class Settings(BaseSettings):
@@ -7,9 +8,9 @@ class Settings(BaseSettings):
     sync_database_url: str = "postgresql+asyncpg://postgres:admin@localhost:5432/trafficrl"
     log_level: str = "INFO"
 
-    # DQN defaults — overridable via request body
-    state_dim: int = 4       # [N, S, E, W] queue lengths
-    action_dim: int = 2      # 0 = NS green, 1 = EW green
+    # DQN defaults
+    state_dim: int = 4
+    action_dim: int = 2
 
     class Config:
         env_file = ".env"
@@ -17,4 +18,16 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+
+    # 🔥 OVERRIDE for Render
+    db_url = os.getenv("DATABASE_URL")
+
+    if db_url:
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql+asyncpg://")
+
+        settings.database_url = db_url
+        settings.sync_database_url = db_url
+
+    return settings
