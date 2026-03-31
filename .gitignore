@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+.env/
+.env
+
+# Environment variables
+.env.*
+*.env
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+
+# Pytest
+.pytest_cache/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Alembic (optional keep migrations, ignore cache)
+alembic/versions/__pycache__/
+
+# Docker (optional)
+*.tar
+
+# Node (if any frontend later)
+node_modules/
+
+# Secrets
+*.pem
+*.key

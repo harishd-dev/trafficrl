@@ -3,8 +3,8 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/trafficrl"
-    sync_database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/trafficrl"
+    database_url: str = "postgresql+asyncpg://postgres:admin@localhost:5432/trafficrl"
+    sync_database_url: str = "postgresql+asyncpg://postgres:admin@localhost:5432/trafficrl"
     log_level: str = "INFO"
 
     # DQN defaults — overridable via request body
