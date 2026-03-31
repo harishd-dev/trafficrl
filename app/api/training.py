@@ -79,11 +79,14 @@ async def _broadcast(payload: dict[str, Any]) -> None:
 
 
 async def _run_training(
-    agent:      DQNAgent,
+    agent: DQNAgent,
     session_id: str,
-    db_session: AsyncSession,
 ) -> None:
-    global _status, _last_result
+    from app.db.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db_session:
+
+        global _status, _last_result
 
     try:
         async for result in agent.train():
@@ -181,7 +184,7 @@ async def start_training(
 
     # Launch training as a background asyncio task
     _training_task = asyncio.create_task(
-        _run_training(_agent, _session_id, db)
+        _run_training(_agent, _session_id)
     )
 
     logger.info("Training started: session=%s episodes=%d", _session_id, req.episodes)
