@@ -4,29 +4,17 @@ services:
     runtime: python
     region: oregon
 
-    # ── Build ──────────────────────────────────────────────────────────────
-    # PyTorch CPU-only wheels keep the build under Render's free-tier limits.
     buildCommand: |
       pip install --upgrade pip
+      pip install -r requirements.txt
       pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
-      pip install flask==3.0.3 flask-cors==4.0.1 gunicorn==22.0.0 numpy==1.26.4
 
-    # ── Start ──────────────────────────────────────────────────────────────
-    # 1 worker (training runs in a background thread inside it).
-    # 4 threads lets health-check / status requests stay responsive while
-    # the training thread is busy.
-    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 
-    # ── Health check ───────────────────────────────────────────────────────
     healthCheckPath: /health
 
-    # ── Environment variables ──────────────────────────────────────────────
     envVars:
       - key: PYTHON_VERSION
-        value: "3.12.0"
-      - key: FLASK_ENV
-        value: production
+        value: "3.10.14"
 
-    # ── Plan ───────────────────────────────────────────────────────────────
-    # Free tier is sufficient for demo; upgrade to Starter for persistent storage.
     plan: free
