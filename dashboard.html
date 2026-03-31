@@ -1,0 +1,2625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TrafficRL — Signal Optimization</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #0a0c10;
+    --bg2: #111318;
+    --bg3: #181c24;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.12);
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --accent: #00d4aa;
+    --accent2: #3b82f6;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --green: #22c55e;
+    --font-mono: 'Space Mono', monospace;
+    --font-body: 'DM Sans', sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 14px; overflow-x: hidden; }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+    opacity: 0.4;
+  }
+
+  .app { position: relative; z-index: 1; display: grid; grid-template-rows: 56px 1fr; min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; border-bottom: 1px solid var(--border);
+    background: rgba(10,12,16,0.9); backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon { width: 28px; height: 28px; display: grid; place-items: center; }
+  .logo-icon svg { width: 22px; height: 22px; }
+  .logo-text { font-family: var(--font-mono); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; color: var(--accent); }
+  .logo-sub { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; margin-left: 4px; }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .status-pill {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+    border: 1px solid var(--border2); border-radius: 20px;
+    font-size: 11px; font-family: var(--font-mono); color: var(--muted);
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  .status-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  /* ── Layout ── */
+  .main { display: grid; grid-template-columns: 260px 1fr 280px; gap: 0; height: calc(100vh - 56px); overflow: hidden; }
+
+  /* ── Sidebar ── */
+  .sidebar { border-right: 1px solid var(--border); overflow-y: auto; padding: 20px 16px; display: flex; flex-direction: column; gap: 20px; }
+  .sidebar-section-label { font-size: 10px; font-family: var(--font-mono); letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+
+  /* Train controls */
+  .control-group { display: flex; flex-direction: column; gap: 10px; }
+  .param-row { display: flex; flex-direction: column; gap: 4px; }
+  .param-label { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+  .param-val { font-family: var(--font-mono); color: var(--accent); }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 3px;
+    background: var(--bg3); border-radius: 2px; outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; transition: transform 0.15s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.3); }
+
+  select {
+    width: 100%; padding: 7px 10px; background: var(--bg3); color: var(--text);
+    border: 1px solid var(--border2); border-radius: 6px; font-family: var(--font-body);
+    font-size: 12px; cursor: pointer; outline: none;
+  }
+  select:focus { border-color: var(--accent); }
+
+  .btn {
+    padding: 9px 16px; border-radius: 6px; font-family: var(--font-mono);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em; cursor: pointer;
+    border: none; transition: all 0.15s; text-transform: uppercase;
+  }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover { background: #00efc0; transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-stop { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .btn-stop:hover { background: rgba(239,68,68,0.1); }
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row .btn { flex: 1; }
+
+  /* Intersection list */
+  .intersection-list { display: flex; flex-direction: column; gap: 6px; }
+  .intersection-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 10px; background: var(--bg3); border-radius: 6px;
+    border: 1px solid var(--border); cursor: pointer; transition: border-color 0.15s;
+  }
+  .intersection-item:hover, .intersection-item.active { border-color: var(--accent); }
+  .int-name { font-size: 12px; font-weight: 500; }
+  .int-badge {
+    font-family: var(--font-mono); font-size: 10px; padding: 2px 6px;
+    border-radius: 4px; background: var(--bg2);
+  }
+  .int-badge.green { color: var(--green); }
+  .int-badge.amber { color: var(--warn); }
+  .int-badge.red { color: var(--danger); }
+
+  /* ── Center: map + charts ── */
+  .center { display: flex; flex-direction: column; overflow: hidden; }
+
+  .map-area {
+    position: relative; flex: 1; background: var(--bg2);
+    border-bottom: 1px solid var(--border); overflow: hidden; min-height: 0;
+  }
+  .map-canvas { width: 100%; height: 100%; display: block; }
+
+  /* ── Chart panel ── */
+  .chart-section {
+    height: 260px; display: grid; grid-template-columns: 1fr 1fr 1fr;
+    border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--bg);
+  }
+  .chart-panel {
+    padding: 11px 14px 8px; border-right: 1px solid var(--border);
+    position: relative; overflow: hidden; display: flex; flex-direction: column;
+  }
+  .chart-panel:last-child { border-right: none; }
+
+  .chart-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; flex-shrink: 0; }
+  .chart-title { font-size: 9px; font-family: var(--font-mono); letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; }
+  .chart-live-badge {
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    color: var(--text); transition: color 0.3s;
+  }
+  .chart-live-badge.flash { color: var(--accent); }
+
+  .chart-meta { display: flex; gap: 10px; margin-bottom: 6px; flex-shrink: 0; }
+  .chart-meta-item { font-size: 9px; font-family: var(--font-mono); color: var(--muted); display: flex; align-items: center; gap: 4px; }
+  .chart-meta-dot { width: 6px; height: 2px; border-radius: 1px; flex-shrink: 0; }
+
+  .chart-canvas-wrap { flex: 1; position: relative; min-height: 0; }
+  .chart-canvas-wrap canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+
+  .chart-empty {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 6px; pointer-events: none;
+  }
+  .chart-empty-icon { font-size: 18px; opacity: 0.2; }
+  .chart-empty-text { font-family: var(--font-mono); font-size: 9px; color: var(--muted); letter-spacing: 0.08em; }
+
+  /* ── Right panel: stats + log ── */
+  .right-panel { border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border); }
+  .stat-cell { padding: 16px 14px; background: var(--bg); }
+  .stat-label { font-size: 10px; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 4px; }
+  .stat-value { font-family: var(--font-mono); font-size: 22px; font-weight: 700; line-height: 1; }
+  .stat-value.accent { color: var(--accent); }
+  .stat-value.amber { color: var(--warn); }
+  .stat-value.blue { color: var(--accent2); }
+  .stat-value.green { color: var(--green); }
+  .stat-delta { font-size: 10px; color: var(--muted); margin-top: 3px; font-family: var(--font-mono); }
+  .stat-delta.up { color: var(--green); }
+  .stat-delta.down { color: var(--danger); }
+
+  /* Episode progress */
+  .episode-panel { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .ep-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .ep-label { font-size: 10px; font-family: var(--font-mono); color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+  .ep-val { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+  .progress-bar { height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.5s ease; width: 0%; }
+
+  /* ── Signal light component ── */
+  .signal-overlay {
+    position: absolute; top: 12px; left: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .signal-box {
+    background: rgba(17,19,24,0.88); border: 1px solid var(--border2);
+    backdrop-filter: blur(8px); border-radius: 8px; padding: 8px 10px;
+    display: flex; align-items: center; gap: 10px; font-size: 11px;
+  }
+  .lights { display: flex; gap: 4px; }
+  .light { width: 9px; height: 9px; border-radius: 50%; opacity: 0.2; transition: opacity 0.4s, box-shadow 0.4s; }
+  .light.r { background: var(--danger); }
+  .light.y { background: var(--warn); }
+  .light.g { background: var(--green); }
+  .light.on { opacity: 1; }
+  .light.on.r { box-shadow: 0 0 8px var(--danger); }
+  .light.on.y { box-shadow: 0 0 8px var(--warn); }
+  .light.on.g { box-shadow: 0 0 8px var(--green); }
+  .sig-name { color: var(--muted); font-family: var(--font-mono); }
+  .sig-timer { margin-left: auto; font-family: var(--font-mono); color: var(--accent); }
+
+  /* Queue HUD */
+  .queue-hud { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .queue-hud-title { font-size: 9px; font-family: var(--font-mono); letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; margin-bottom: 10px; }
+  .queue-directions { display: flex; flex-direction: column; gap: 6px; }
+  .queue-dir { display: flex; align-items: center; gap: 8px; }
+  .queue-dir-label { font-family: var(--font-mono); font-size: 10px; color: var(--muted); width: 12px; flex-shrink: 0; }
+  .queue-bar-wrap { flex: 1; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+  .queue-bar { height: 100%; border-radius: 3px; transition: width 0.4s ease, background 0.4s; width: 0%; background: var(--accent); }
+  .queue-bar.warn { background: var(--warn); }
+  .queue-bar.danger { background: var(--danger); }
+  .queue-dir-count { font-family: var(--font-mono); font-size: 10px; color: var(--text); width: 20px; text-align: right; flex-shrink: 0; }
+  .queue-wait-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+  .queue-wait-label { font-size: 10px; color: var(--muted); font-family: var(--font-mono); }
+  .queue-wait-val { font-family: var(--font-mono); font-size: 12px; color: var(--warn); }
+
+  /* ── Comparison panel ── */
+  .right-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .right-tab {
+    flex: 1; padding: 10px 0; font-size: 10px; font-family: var(--font-mono);
+    letter-spacing: 0.1em; text-transform: uppercase; text-align: center;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .right-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-pane { display: none; flex: 1; flex-direction: column; overflow: hidden; min-height: 0; }
+  .tab-pane.active { display: flex; }
+
+  /* Compare pane */
+  .cmp-section { padding: 12px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .cmp-section-label {
+    font-size: 9px; font-family: var(--font-mono); letter-spacing: 0.12em;
+    color: var(--muted); text-transform: uppercase; margin-bottom: 10px;
+  }
+
+  /* Mode toggle */
+  .cmp-mode-row { display: flex; gap: 6px; margin-bottom: 10px; }
+  .cmp-mode-btn {
+    flex: 1; padding: 6px 8px; border-radius: 5px; font-size: 10px;
+    font-family: var(--font-mono); cursor: pointer; border: 1px solid var(--border2);
+    background: transparent; color: var(--muted); transition: all 0.15s;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .cmp-mode-btn.active { background: var(--bg3); color: var(--text); border-color: var(--accent); }
+
+  /* Dual metric rows */
+  .cmp-metric { margin-bottom: 12px; }
+  .cmp-metric-label {
+    font-size: 9px; font-family: var(--font-mono); color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .cmp-improve {
+    font-size: 10px; font-weight: 700; font-family: var(--font-mono);
+    padding: 1px 5px; border-radius: 4px; transition: all 0.4s;
+  }
+  .cmp-improve.good { background: rgba(34,197,94,0.15); color: var(--green); }
+  .cmp-improve.bad  { background: rgba(239,68,68,0.15);  color: var(--danger); }
+  .cmp-improve.neutral { background: var(--bg3); color: var(--muted); }
+
+  .cmp-bar-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .cmp-bar-label { font-size: 9px; font-family: var(--font-mono); color: var(--muted); width: 28px; flex-shrink: 0; }
+  .cmp-bar-track { flex: 1; height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden; position: relative; }
+  .cmp-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s cubic-bezier(0.4,0,0.2,1); width: 0%; }
+  .cmp-bar-fill.baseline { background: #6b7280; }
+  .cmp-bar-fill.dqn      { background: var(--accent); }
+  .cmp-bar-val { font-size: 9px; font-family: var(--font-mono); color: var(--text); width: 38px; text-align: right; flex-shrink: 0; }
+
+  /* Summary scorecard */
+  .cmp-scorecard { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-radius: 6px; overflow: hidden; margin-top: 4px; }
+  .cmp-score-cell { background: var(--bg3); padding: 10px 10px 8px; }
+  .cmp-score-label { font-size: 8px; font-family: var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
+  .cmp-score-val { font-size: 16px; font-family: var(--font-mono); font-weight: 700; color: var(--text); line-height: 1; }
+  .cmp-score-val.good { color: var(--green); }
+  .cmp-score-val.bad  { color: var(--danger); }
+
+  /* ── Button states ── */
+  .btn:disabled {
+    opacity: 0.38; cursor: not-allowed; transform: none !important;
+    pointer-events: none;
+  }
+  .btn-primary.loading {
+    position: relative; color: transparent; pointer-events: none;
+  }
+  .btn-primary.loading::after {
+    content: '';
+    position: absolute; inset: 0; margin: auto;
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid rgba(0,0,0,0.25);
+    border-top-color: #000;
+    animation: spin 0.65s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Reset button */
+  .btn-reset {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border2); width: 100%;
+  }
+  .btn-reset:hover:not(:disabled) { color: var(--text); border-color: var(--border); background: var(--bg3); }
+
+  /* ── Structured log ── */
+  .log-area { flex: 1; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; display: flex; flex-direction: column; min-height: 0; }
+
+  /* Column header */
+  .log-header {
+    display: grid; grid-template-columns: 48px 38px 1fr 72px 62px;
+    padding: 5px 14px; gap: 6px; flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 9px; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase;
+    position: sticky; top: 0; background: var(--bg2); z-index: 1;
+  }
+  .log-header span { text-align: right; }
+  .log-header span:first-child { text-align: left; }
+
+  /* Scrollable rows */
+  .log-rows { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0; padding: 4px 0; }
+
+  .log-entry {
+    display: grid; grid-template-columns: 48px 38px 1fr 72px 62px;
+    padding: 3px 14px; gap: 6px; line-height: 1.6;
+    opacity: 0; animation: fadeIn 0.2s forwards;
+    border-bottom: 1px solid transparent;
+    transition: background 0.1s;
+  }
+  .log-entry:hover { background: var(--bg3); }
+  .log-entry > span { text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log-entry > span:first-child { text-align: left; }
+
+  /* Column colours */
+  .log-time  { color: var(--muted); }
+  .log-ep    { color: var(--text); }
+  .log-msg   { color: var(--text); text-align: left !important; }
+  .log-msg.info    { color: var(--accent2); }
+  .log-msg.success { color: var(--green); }
+  .log-msg.warn    { color: var(--warn); }
+  .log-msg.err     { color: var(--danger); }
+  .log-reward { color: var(--accent); }
+  .log-loss   { color: var(--muted); }
+
+  /* System / plain message rows (no episode data) */
+  .log-entry.plain { grid-template-columns: 48px 1fr; }
+  .log-entry.plain .log-msg { grid-column: 2 / -1; text-align: left; }
+
+  @keyframes fadeIn { to { opacity: 1; } }
+
+  /* Simulation mode badge */
+  .sim-badge {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.08em; padding: 3px 9px; border-radius: 4px;
+    background: rgba(245,158,11,0.12); color: var(--warn);
+    border: 1px solid rgba(245,158,11,0.25); text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="9" y="1" width="4" height="20" rx="2" fill="#00d4aa" opacity="0.15"/>
+          <circle cx="11" cy="5" r="2.5" fill="#ef4444"/>
+          <circle cx="11" cy="11" r="2.5" fill="#f59e0b"/>
+          <circle cx="11" cy="17" r="2.5" fill="#22c55e"/>
+          <rect x="1" y="10" width="4" height="2" rx="1" fill="#00d4aa" opacity="0.5"/>
+          <rect x="17" y="10" width="4" height="2" rx="1" fill="#00d4aa" opacity="0.5"/>
+        </svg>
+      </div>
+      <span class="logo-text">TRAFFICRL</span>
+      <span class="logo-sub">Signal Optimization</span>
+    </div>
+    <div class="header-right">
+      <div id="sim-mode-badge" class="sim-badge" style="display:none">⚡ Sim Mode</div>
+      <div class="status-pill">
+        <div class="status-dot" id="conn-dot"></div>
+        <span id="conn-label">Disconnected</span>
+      </div>
+      <div class="status-pill">
+        <span id="ep-header-label" style="color:var(--text)">Ep <span id="ep-num" style="font-family:var(--font-mono)">—</span></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div>
+        <div class="sidebar-section-label">Training Config</div>
+        <div class="control-group">
+          <div class="param-row">
+            <div class="param-label">Algorithm <span class="param-val" id="algo-val">DQN</span></div>
+            <select id="algo-select" onchange="document.getElementById('algo-val').textContent=this.value">
+              <option>DQN</option><option>PPO</option><option>A2C</option><option>SAC</option>
+            </select>
+          </div>
+          <div class="param-row">
+            <div class="param-label">Learning Rate <span class="param-val" id="lr-val">0.0003</span></div>
+            <input type="range" id="lr-range" min="1" max="100" value="30"
+              oninput="document.getElementById('lr-val').textContent=(this.value*0.00001).toFixed(5)"/>
+          </div>
+          <div class="param-row">
+            <div class="param-label">Gamma (discount) <span class="param-val" id="gamma-val">0.95</span></div>
+            <input type="range" id="gamma-range" min="80" max="99" value="95"
+              oninput="document.getElementById('gamma-val').textContent='0.'+this.value"/>
+          </div>
+          <div class="param-row">
+            <div class="param-label">Episodes <span class="param-val" id="eps-val">500</span></div>
+            <input type="range" id="eps-range" min="100" max="2000" step="100" value="500"
+              oninput="document.getElementById('eps-val').textContent=this.value"/>
+          </div>
+          <div class="param-row">
+            <div class="param-label">Max steps/ep <span class="param-val" id="steps-val">200</span></div>
+            <input type="range" id="steps-range" min="50" max="500" step="50" value="200"
+              oninput="document.getElementById('steps-val').textContent=this.value"/>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="btn-train" onclick="startTraining()">▶ Train</button>
+            <button class="btn btn-stop"    id="btn-stop"  onclick="stopTraining()">■ Stop</button>
+          </div>
+          <button class="btn btn-reset" id="btn-reset" onclick="resetSimulation()">↺ Reset Simulation</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="sidebar-section-label">Intersections</div>
+        <div class="intersection-list" id="int-list">
+          <!-- populated by JS -->
+        </div>
+      </div>
+
+      <div>
+        <div class="sidebar-section-label">Simulation</div>
+        <div class="control-group">
+          <div class="param-row">
+            <div class="param-label">Spawn rate <span class="param-val" id="density-val">0.30 veh/s</span></div>
+            <input type="range" id="density-range" min="1" max="20" value="6"
+              oninput="onDensityChange(this.value)"/>
+          </div>
+          <div class="param-row">
+            <div class="param-label">Sim speed <span class="param-val" id="speed-val">1×</span></div>
+            <input type="range" id="speed-range" min="1" max="8" value="1"
+              oninput="document.getElementById('speed-val').textContent=this.value+'×'; simSpeed=+this.value"/>
+          </div>
+          <div class="param-row">
+            <div class="param-label">Signal source <span class="param-val" id="sig-src-val">DQN</span></div>
+            <select id="sig-src" onchange="onSigSrcChange(this.value)">
+              <option value="dqn" selected>DQN (backend)</option>
+              <option value="fixed">Fixed 30s (baseline)</option>
+            </select>
+          </div>
+          <div class="param-row" id="cadence-row">
+            <div class="param-label">Predict cadence <span class="param-val" id="cadence-val">500 ms</span></div>
+            <input type="range" id="cadence-range" min="1" max="10" value="5"
+              oninput="onCadenceChange(+this.value)"/>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center -->
+    <div class="center">
+      <div class="map-area">
+        <canvas class="map-canvas" id="map-canvas"></canvas>
+        <div class="signal-overlay" id="signal-overlay"></div>
+      </div>
+      <div class="chart-section">
+
+        <!-- Reward vs Episodes -->
+        <div class="chart-panel">
+          <div class="chart-header">
+            <span class="chart-title">Reward / Episode</span>
+            <span class="chart-live-badge" id="badge-reward">—</span>
+          </div>
+          <div class="chart-meta">
+            <div class="chart-meta-item">
+              <div class="chart-meta-dot" style="background:#00d4aa"></div>Raw
+            </div>
+            <div class="chart-meta-item">
+              <div class="chart-meta-dot" style="background:#00d4aa55;width:12px;border-top:1px dashed #00d4aa88"></div>MA-10
+            </div>
+            <div class="chart-meta-item" id="meta-best-reward" style="display:none">
+              <div class="chart-meta-dot" style="background:transparent;border-top:1px solid #22c55e88;width:12px"></div>Best
+            </div>
+          </div>
+          <div class="chart-canvas-wrap">
+            <canvas id="reward-chart"></canvas>
+            <div class="chart-empty" id="empty-reward">
+              <div class="chart-empty-icon">◈</div>
+              <div class="chart-empty-text">Waiting for training</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Avg Wait Time vs Episodes -->
+        <div class="chart-panel">
+          <div class="chart-header">
+            <span class="chart-title">Avg Wait Time</span>
+            <span class="chart-live-badge" id="badge-wait">—</span>
+          </div>
+          <div class="chart-meta">
+            <div class="chart-meta-item">
+              <div class="chart-meta-dot" style="background:#f59e0b"></div>Raw
+            </div>
+            <div class="chart-meta-item">
+              <div class="chart-meta-dot" style="background:#f59e0b55;width:12px;border-top:1px dashed #f59e0b88"></div>MA-10
+            </div>
+          </div>
+          <div class="chart-canvas-wrap">
+            <canvas id="wait-chart"></canvas>
+            <div class="chart-empty" id="empty-wait">
+              <div class="chart-empty-icon">◈</div>
+              <div class="chart-empty-text">Waiting for training</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Epsilon Decay -->
+        <div class="chart-panel">
+          <div class="chart-header">
+            <span class="chart-title">Epsilon Decay</span>
+            <span class="chart-live-badge" id="badge-eps">—</span>
+          </div>
+          <div class="chart-meta">
+            <div class="chart-meta-item">
+              <div class="chart-meta-dot" style="background:#a78bfa"></div>ε value
+            </div>
+            <div class="chart-meta-item">
+              <div class="chart-meta-dot" style="background:transparent;border-top:1px solid #6b728088;width:12px"></div>ε-end
+            </div>
+          </div>
+          <div class="chart-canvas-wrap">
+            <canvas id="eps-chart"></canvas>
+            <div class="chart-empty" id="empty-eps">
+              <div class="chart-empty-icon">◈</div>
+              <div class="chart-empty-text">Waiting for training</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div class="right-panel">
+      <div class="stats-grid">
+        <div class="stat-cell">
+          <div class="stat-label">Total Reward</div>
+          <div class="stat-value accent" id="stat-reward">—</div>
+          <div class="stat-delta" id="delta-reward"></div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">Avg Wait</div>
+          <div class="stat-value amber" id="stat-wait">—</div>
+          <div class="stat-delta" id="delta-wait"></div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">Throughput</div>
+          <div class="stat-value blue" id="stat-thru">—</div>
+          <div class="stat-delta" id="delta-thru"></div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-label">Epsilon ε</div>
+          <div class="stat-value green" id="stat-eps">—</div>
+          <div class="stat-delta" id="delta-eps"></div>
+        </div>
+      </div>
+
+      <div class="episode-panel">
+        <div class="ep-header">
+          <span class="ep-label">Episode Progress</span>
+          <span class="ep-val" id="ep-progress-label">0 / 500</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="right-tabs">
+        <div class="right-tab active" id="tab-live"    onclick="switchTab('live')">Live</div>
+        <div class="right-tab"        id="tab-compare" onclick="switchTab('compare')">Compare</div>
+        <div class="right-tab"        id="tab-queues"  onclick="switchTab('queues')">Queues</div>
+      </div>
+
+      <!-- Live log pane -->
+      <div class="tab-pane active" id="pane-live">
+        <div class="log-area">
+          <div class="log-header">
+            <span>Time</span>
+            <span>Ep</span>
+            <span style="text-align:left">Event</span>
+            <span>Reward</span>
+            <span>Loss</span>
+          </div>
+          <div class="log-rows" id="log-rows">
+            <div class="log-entry plain">
+              <span class="log-time">--:--:--</span>
+              <span class="log-msg">Ready — configure params and click Train.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Compare pane -->
+      <div class="tab-pane" id="pane-compare" style="overflow-y:auto">
+
+        <div class="cmp-section">
+          <div class="cmp-section-label">Simulation mode</div>
+          <div class="cmp-mode-row">
+            <button class="cmp-mode-btn active" id="cmp-btn-both"     onclick="setCmpMode('both')">Both</button>
+            <button class="cmp-mode-btn"        id="cmp-btn-baseline" onclick="setCmpMode('baseline')">Baseline only</button>
+            <button class="cmp-mode-btn"        id="cmp-btn-dqn"      onclick="setCmpMode('dqn')">DQN only</button>
+          </div>
+          <div style="font-size:9px;color:var(--muted);font-family:var(--font-mono);line-height:1.6">
+            Baseline: fixed 30s/30s timing<br>
+            DQN: backend model or auto /predict
+          </div>
+        </div>
+
+        <!-- Avg Wait comparison -->
+        <div class="cmp-section">
+          <div class="cmp-metric">
+            <div class="cmp-metric-label">
+              Avg Wait Time
+              <span class="cmp-improve neutral" id="cmp-wait-pct">—</span>
+            </div>
+            <div class="cmp-bar-row">
+              <span class="cmp-bar-label">Base</span>
+              <div class="cmp-bar-track"><div class="cmp-bar-fill baseline" id="cmp-wait-base-bar"></div></div>
+              <span class="cmp-bar-val" id="cmp-wait-base-val">—</span>
+            </div>
+            <div class="cmp-bar-row">
+              <span class="cmp-bar-label">DQN</span>
+              <div class="cmp-bar-track"><div class="cmp-bar-fill dqn" id="cmp-wait-dqn-bar"></div></div>
+              <span class="cmp-bar-val" id="cmp-wait-dqn-val">—</span>
+            </div>
+          </div>
+
+          <!-- Throughput comparison -->
+          <div class="cmp-metric">
+            <div class="cmp-metric-label">
+              Throughput
+              <span class="cmp-improve neutral" id="cmp-thru-pct">—</span>
+            </div>
+            <div class="cmp-bar-row">
+              <span class="cmp-bar-label">Base</span>
+              <div class="cmp-bar-track"><div class="cmp-bar-fill baseline" id="cmp-thru-base-bar"></div></div>
+              <span class="cmp-bar-val" id="cmp-thru-base-val">—</span>
+            </div>
+            <div class="cmp-bar-row">
+              <span class="cmp-bar-label">DQN</span>
+              <div class="cmp-bar-track"><div class="cmp-bar-fill dqn" id="cmp-thru-dqn-bar"></div></div>
+              <span class="cmp-bar-val" id="cmp-thru-dqn-val">—</span>
+            </div>
+          </div>
+
+          <!-- Queue length comparison -->
+          <div class="cmp-metric">
+            <div class="cmp-metric-label">
+              Avg Queue Length
+              <span class="cmp-improve neutral" id="cmp-queue-pct">—</span>
+            </div>
+            <div class="cmp-bar-row">
+              <span class="cmp-bar-label">Base</span>
+              <div class="cmp-bar-track"><div class="cmp-bar-fill baseline" id="cmp-queue-base-bar"></div></div>
+              <span class="cmp-bar-val" id="cmp-queue-base-val">—</span>
+            </div>
+            <div class="cmp-bar-row">
+              <span class="cmp-bar-label">DQN</span>
+              <div class="cmp-bar-track"><div class="cmp-bar-fill dqn" id="cmp-queue-dqn-bar"></div></div>
+              <span class="cmp-bar-val" id="cmp-queue-dqn-val">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scorecard -->
+        <div class="cmp-section">
+          <div class="cmp-section-label">Overall improvement</div>
+          <div class="cmp-scorecard">
+            <div class="cmp-score-cell">
+              <div class="cmp-score-label">Wait reduction</div>
+              <div class="cmp-score-val" id="score-wait">—</div>
+            </div>
+            <div class="cmp-score-cell">
+              <div class="cmp-score-label">Thru gain</div>
+              <div class="cmp-score-val" id="score-thru">—</div>
+            </div>
+            <div class="cmp-score-cell">
+              <div class="cmp-score-label">Queue reduction</div>
+              <div class="cmp-score-val" id="score-queue">—</div>
+            </div>
+            <div class="cmp-score-cell">
+              <div class="cmp-score-label">DQN decisions</div>
+              <div class="cmp-score-val" id="score-decisions">0</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mini trend chart -->
+        <div class="cmp-section" style="flex:1;min-height:120px;display:flex;flex-direction:column">
+          <div class="cmp-section-label">Wait time trend</div>
+          <div style="flex:1;position:relative;min-height:0">
+            <canvas id="cmp-trend-chart"></canvas>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Queues pane -->
+      <div class="tab-pane" id="pane-queues">
+        <div class="queue-hud" id="queue-hud" style="border-bottom:none;flex:1">
+          <div class="queue-hud-title">Queue Lengths · INT-01</div>
+          <div class="queue-directions">
+            <div class="queue-dir" id="q-north">
+              <div class="queue-dir-label">N</div>
+              <div class="queue-bar-wrap"><div class="queue-bar" id="qb-north"></div></div>
+              <div class="queue-dir-count" id="qc-north">0</div>
+            </div>
+            <div class="queue-dir" id="q-south">
+              <div class="queue-dir-label">S</div>
+              <div class="queue-bar-wrap"><div class="queue-bar" id="qb-south"></div></div>
+              <div class="queue-dir-count" id="qc-south">0</div>
+            </div>
+            <div class="queue-dir" id="q-east">
+              <div class="queue-dir-label">E</div>
+              <div class="queue-bar-wrap"><div class="queue-bar" id="qb-east"></div></div>
+              <div class="queue-dir-count" id="qc-east">0</div>
+            </div>
+            <div class="queue-dir" id="q-west">
+              <div class="queue-dir-label">W</div>
+              <div class="queue-bar-wrap"><div class="queue-bar" id="qb-west"></div></div>
+              <div class="queue-dir-count" id="qc-west">0</div>
+            </div>
+          </div>
+          <div class="queue-wait-row">
+            <span class="queue-wait-label">Avg wait this intersection</span>
+            <span class="queue-wait-val" id="queue-avg-wait">—</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// ── Config ──────────────────────────────────────────
+// To point at a real deployed backend:
+//   1. Set SIMULATION_MODE = false
+//   2. Replace the URL below with your Render/Railway/Fly deployment URL
+const API_BASE         = 'https://YOUR-RENDER-URL.onrender.com';
+const SIMULATION_MODE  = true;   // ← flip to false when backend is deployed
+
+// API is used in log messages and fetch calls.
+// In simulation mode it shows '[Simulation]' so logs are clearly labelled.
+const API              = SIMULATION_MODE ? '[Simulation]' : API_BASE;
+const POLL_INTERVAL_MS = 1000;   // GET /status every 1 s — primary transport
+
+// ── State ───────────────────────────────────────────
+let ws                 = null;  // kept for WS cleanup only; not used as primary
+let pollTimer          = null;
+let training           = false;
+let episodeCount       = 0;
+let maxEpisodes        = 500;
+let prevStats          = { reward: null, wait: null, thru: null, eps: null };
+let lastIngestedEp     = -1;    // dedup — skip poll responses with same episode #
+let consecutiveErrors  = 0;     // track backend connectivity during polling
+
+// ── Chart engine ─────────────────────────────────────
+Chart.defaults.color        = '#6b7280';
+Chart.defaults.font.family  = "'Space Mono', monospace";
+Chart.defaults.font.size    = 9;
+Chart.defaults.animation    = false;
+
+const MAX_POINTS = 200;  // rolling window per chart
+const MA_WINDOW  = 10;   // moving average period
+
+// Per-chart data stores
+const chartData = {
+  reward: { labels: [], raw: [], ma: [], best: null },
+  wait:   { labels: [], raw: [], ma: [], best: null },
+  eps:    { labels: [], raw: [], ma: [], best: null },
+};
+
+// Trailing moving average — O(n) recompute on trimmed window
+function computeMA(arr, w) {
+  return arr.map((_, i) => {
+    const slice = arr.slice(Math.max(0, i - w + 1), i + 1);
+    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  });
+}
+
+// Gradient fill — recomputed each draw because chartArea is unavailable at init
+function makeGradient(chartCtx, color) {
+  const { top, bottom } = chartCtx.chart.chartArea || {};
+  if (top == null) return color + '18';
+  const g = chartCtx.chart.ctx.createLinearGradient(0, top, 0, bottom);
+  g.addColorStop(0, color + '35');
+  g.addColorStop(1, color + '00');
+  return g;
+}
+
+// Annotation plugin — draws a single horizontal reference line + label
+const annotLinePlugin = {
+  id: 'annotLine',
+  afterDraw(chart) {
+    const val   = chart.__annotVal;
+    const color = chart.__annotColor || 'rgba(100,200,100,0.5)';
+    if (val == null) return;
+    const { ctx, chartArea, scales: { y } } = chart;
+    if (!y || !chartArea) return;
+    const yPx = y.getPixelForValue(val);
+    if (yPx < chartArea.top || yPx > chartArea.bottom) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(chartArea.left,  yPx);
+    ctx.lineTo(chartArea.right, yPx);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle  = color;
+    ctx.font       = '700 8px Space Mono, monospace';
+    ctx.textAlign  = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(Number(val).toFixed(2), chartArea.right - 3, yPx - 2);
+    ctx.restore();
+  },
+};
+
+// "Completed" overlay — drawn when training is done
+const completedPlugin = {
+  id: 'completedBadge',
+  afterDraw(chart) {
+    if (!chart.__completed) return;
+    const { ctx, chartArea } = chart;
+    if (!chartArea) return;
+    ctx.save();
+    ctx.fillStyle    = 'rgba(34,197,94,0.12)';
+    ctx.fillRect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+    ctx.fillStyle    = 'rgba(34,197,94,0.7)';
+    ctx.font         = '700 9px Space Mono, monospace';
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillText('✓ COMPLETED', chartArea.right - 4, chartArea.top + 4);
+    ctx.restore();
+  },
+};
+
+function buildChart(id, rawColor, yMin, yMax) {
+  const maColor = rawColor + '99';
+  return new Chart(document.getElementById(id), {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        // ds[0] — raw values, gradient fill
+        {
+          label:      'Raw',
+          data:       [],
+          borderColor: rawColor,
+          borderWidth: 1.5,
+          pointRadius: 0,
+          pointHoverRadius:           4,
+          pointHoverBackgroundColor:  rawColor,
+          pointHoverBorderColor:      rawColor,
+          tension:    0.35,
+          fill:       true,
+          backgroundColor: ctx => makeGradient(ctx, rawColor),
+          order: 2,
+        },
+        // ds[1] — MA-10 overlay, dashed, no fill
+        {
+          label:      `MA-${MA_WINDOW}`,
+          data:       [],
+          borderColor: maColor,
+          borderWidth: 2,
+          borderDash:  [5, 3],           // Chart.js 4 dataset-level borderDash
+          pointRadius: 0,
+          pointHoverRadius:           3,
+          pointHoverBackgroundColor:  maColor,
+          tension:    0.5,
+          fill:       false,
+          order: 1,
+        },
+      ],
+    },
+    plugins: [annotLinePlugin, completedPlugin],
+    options: {
+      responsive:          true,
+      maintainAspectRatio: false,
+      animation:           false,
+      interaction: { mode: 'index', axis: 'x', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0d0f14',
+          borderColor:     'rgba(255,255,255,0.07)',
+          borderWidth:     1,
+          padding:         10,              // Chart.js 4: single number
+          titleColor:      '#9ca3af',
+          bodyColor:       '#e8eaf0',
+          callbacks: {
+            title: items => `Episode ${items[0].label}`,
+            label: item  => ` ${item.dataset.label}: ${Number(item.raw).toFixed(3)}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          type:   'category',
+          grid:   { color: 'rgba(255,255,255,0.03)', drawTicks: false },
+          border: { display: false },
+          ticks:  {
+            maxTicksLimit: 6,
+            maxRotation:   0,
+            autoSkip:      true,          // decimate dense episode labels
+            color:         '#374151',
+            callback(val, idx, ticks) {
+              // Show only the label string (episode number), skip empty
+              return this.getLabelForValue(val) ?? '';
+            },
+          },
+        },
+        y: {
+          suggestedMin: yMin,
+          suggestedMax: yMax,
+          grid:   { color: 'rgba(255,255,255,0.04)', drawTicks: false },
+          border: { display: false },
+          ticks:  {
+            maxTicksLimit: 5,
+            color:         '#374151',
+            callback: v   => Number(v).toFixed(1),
+          },
+        },
+      },
+    },
+  });
+}
+
+const charts = {
+  reward: buildChart('reward-chart', '#00d4aa', -300,  50),
+  wait:   buildChart('wait-chart',   '#f59e0b',    0,  60),
+  eps:    buildChart('eps-chart',    '#a78bfa',    0,   1),
+};
+
+// Wire ε-end annotation immediately
+charts.eps.__annotVal   = 0.05;
+charts.eps.__annotColor = 'rgba(107,114,128,0.55)';
+
+// Pause-on-hover: freeze chart while tooltip is visible
+const hovered = { reward: false, wait: false, eps: false };
+['reward', 'wait', 'eps'].forEach(key => {
+  const canvas = document.getElementById(key + '-chart');
+  canvas.addEventListener('mouseenter', () => { hovered[key] = true;  });
+  canvas.addEventListener('mouseleave', () => { hovered[key] = false; });
+});
+
+// Empty-state toggle
+function setChartEmpty(key, empty) {
+  const el = document.getElementById('empty-' + key);
+  if (el) el.style.display = empty ? 'flex' : 'none';
+}
+['reward', 'wait', 'eps'].forEach(k => setChartEmpty(k, true));
+
+// Mark all charts completed (called when WS sends done)
+function markChartsCompleted() {
+  Object.values(charts).forEach(ch => {
+    ch.__completed = true;
+    ch.update('none');
+  });
+}
+
+// Flash live badge on new value
+function flashBadge(id, value, fmt) {
+  const el = document.getElementById('badge-' + id);
+  if (!el) return;
+  el.textContent = fmt(value);
+  el.classList.remove('flash');
+  void el.offsetWidth;                 // force reflow to retrigger animation
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 600);
+}
+
+// Core push: append one data point, recompute MA, update chart
+function pushChartPoint(key, episode, value) {
+  if (value == null) return;
+  if (hovered[key])  return;           // paused during hover
+
+  const store = chartData[key];
+  store.labels.push(episode);
+  store.raw.push(value);
+
+  // Trim to rolling window
+  if (store.labels.length > MAX_POINTS) {
+    store.labels.shift();
+    store.raw.shift();
+  }
+
+  // Full MA recompute on current window (cheap at ≤ 200 pts)
+  store.ma = computeMA(store.raw, MA_WINDOW);
+
+  // Track all-time best for reward annotation line
+  if (key === 'reward') {
+    if (store.best === null || value > store.best) {
+      store.best                    = value;
+      charts.reward.__annotVal      = value;
+      charts.reward.__annotColor    = 'rgba(34,197,94,0.6)';
+      const metaEl = document.getElementById('meta-best-reward');
+      if (metaEl) metaEl.style.display = 'flex';
+    }
+  }
+
+  const ch = charts[key];
+  ch.data.labels             = [...store.labels];
+  ch.data.datasets[0].data   = [...store.raw];
+  ch.data.datasets[1].data   = [...store.ma];
+  ch.update('none');           // instant — no easing lag at high episode rate
+
+  setChartEmpty(key, false);
+}
+
+// Full reset for a new training run
+function resetCharts() {
+  ['reward', 'wait', 'eps'].forEach(key => {
+    chartData[key] = { labels: [], raw: [], ma: [], best: null };
+    const ch = charts[key];
+    ch.__completed = false;
+    ch.data.labels           = [];
+    ch.data.datasets[0].data = [];
+    ch.data.datasets[1].data = [];
+    if (key !== 'eps') ch.__annotVal = null;
+    ch.update('none');
+    setChartEmpty(key, true);
+    const badge = document.getElementById('badge-' + key);
+    if (badge) badge.textContent = '—';
+  });
+  const metaEl = document.getElementById('meta-best-reward');
+  if (metaEl) metaEl.style.display = 'none';
+  prevStats = { reward: null, wait: null, thru: null, eps: null };
+  updateProgressBar(0, maxEpisodes);
+  ['stat-reward','stat-wait','stat-thru','stat-eps'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = '—';
+  });
+  ['delta-reward','delta-wait','delta-thru','delta-eps'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = '';
+  });
+}
+
+// ── Animated number counter ──────────────────────────
+function animateValue(el, from, to, format, duration=350) {
+  if (from === null || from === to) { el.textContent = format(to); return; }
+  const start = performance.now();
+  function step(now) {
+    const t = Math.min((now - start) / duration, 1);
+    const eased = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+    el.textContent = format(from + (to - from) * eased);
+    if (t < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ── Progress bar with smooth CSS transition ───────────
+function updateProgressBar(current, total) {
+  episodeCount = current;
+  maxEpisodes  = total;
+  const pct = total > 0 ? (current / total * 100).toFixed(2) : 0;
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('ep-progress-label').textContent = `${current} / ${total}`;
+  document.getElementById('ep-num').textContent = current;
+}
+
+// ── Stat cells with animated counter + delta ─────────
+function updateStats(reward, wait, thru, eps) {
+  const cells = [
+    { id: 'stat-reward', delta: 'delta-reward', val: reward, prev: prevStats.reward, fmt: v => v.toFixed(1),        up: true  },
+    { id: 'stat-wait',   delta: 'delta-wait',   val: wait,   prev: prevStats.wait,   fmt: v => v.toFixed(2)+'s',    up: false },
+    { id: 'stat-thru',   delta: 'delta-thru',   val: thru,   prev: prevStats.thru,   fmt: v => Math.round(v)+'/min',up: true  },
+    { id: 'stat-eps',    delta: 'delta-eps',     val: eps,    prev: prevStats.eps,    fmt: v => v.toFixed(3),        up: false },
+  ];
+
+  cells.forEach(({ id, delta, val, prev, fmt, up }) => {
+    if (val === null) return;
+    const el = document.getElementById(id);
+    animateValue(el, prev, val, fmt);
+
+    const dEl = document.getElementById(delta);
+    if (prev !== null) {
+      const diff = val - prev;
+      if (Math.abs(diff) >= 0.001) {
+        const good = up ? diff > 0 : diff < 0;
+        dEl.className   = 'stat-delta ' + (good ? 'up' : 'down');
+        dEl.textContent = (diff > 0 ? '▲ +' : '▼ ') + Math.abs(diff).toFixed(2);
+      }
+    }
+  });
+
+  prevStats = { reward, wait, thru, eps };
+}
+
+// ── Tab switcher ─────────────────────────────────────
+function switchTab(name) {
+  ['live','compare','queues'].forEach(t => {
+    document.getElementById('tab-'  + t)?.classList.toggle('active', t === name);
+    document.getElementById('pane-' + t)?.classList.toggle('active', t === name);
+  });
+  if (name === 'compare') cmpTrendChart?.update('none');
+}
+
+// ── Comparison mode toggle ────────────────────────────
+let cmpMode = 'both'; // 'both' | 'baseline' | 'dqn'
+function setCmpMode(mode) {
+  cmpMode = mode;
+  ['both','baseline','dqn'].forEach(m => {
+    document.getElementById('cmp-btn-' + m)?.classList.toggle('active', m === mode);
+  });
+}
+
+// ── Baseline shadow simulation ────────────────────────
+// Runs the fixed-30s signal logic on a mirrored queue model.
+// Never renders — only accumulates stats for comparison.
+const BASELINE = {
+  phase:      0,
+  timer:      0,
+  queues:     { N: 0, S: 0, E: 0, W: 0 },  // vehicle counts
+  spawnAcc:   { N: 0, S: 0, E: 0, W: 0 },
+  totalWait:  0,
+  totalVeh:   0,
+  exited:     0,
+  ticks:      0,
+};
+
+const BASELINE_PHASE_TICKS = 30 * 60;  // 30s at 60fps
+const BASELINE_DISCHARGE   = 1.8;      // veh/s when green
+const BASELINE_MAX_Q       = 20;
+
+function tickBaseline(dtSec) {
+  BASELINE.ticks++;
+  BASELINE.timer++;
+
+  // Phase switch every 30s
+  if (BASELINE.timer >= BASELINE_PHASE_TICKS) {
+    BASELINE.phase = 1 - BASELINE.phase;
+    BASELINE.timer = 0;
+  }
+
+  const dirs = ['N','S','E','W'];
+
+  // Arrivals
+  dirs.forEach(d => {
+    BASELINE.spawnAcc[d] += spawnRate * dtSec * simSpeed;
+    while (BASELINE.spawnAcc[d] >= 1 && BASELINE.queues[d] < BASELINE_MAX_Q) {
+      BASELINE.queues[d]++;
+      BASELINE.spawnAcc[d]--;
+    }
+    if (BASELINE.queues[d] >= BASELINE_MAX_Q) BASELINE.spawnAcc[d] = 0;
+  });
+
+  // Green arms discharge
+  const discharged = BASELINE_DISCHARGE * dtSec * simSpeed;
+  dirs.forEach(d => {
+    const isGreen = (BASELINE.phase === 0 && (d==='N'||d==='S'))
+                 || (BASELINE.phase === 1 && (d==='E'||d==='W'));
+    if (isGreen && BASELINE.queues[d] > 0) {
+      const cleared = Math.min(BASELINE.queues[d], discharged);
+      BASELINE.queues[d] = Math.max(0, BASELINE.queues[d] - cleared);
+      BASELINE.exited   += cleared;
+    }
+  });
+
+  // Accumulate wait stats
+  const totalQ = Object.values(BASELINE.queues).reduce((a,b) => a+b, 0);
+  BASELINE.totalWait += totalQ * dtSec * simSpeed;
+  BASELINE.totalVeh  += 1; // denominator ticks
+}
+
+function baselineAvgWait() {
+  return BASELINE.totalVeh > 0 ? BASELINE.totalWait / BASELINE.totalVeh : 0;
+}
+function baselineThroughput() {
+  // veh per simulated-second
+  return BASELINE.ticks > 0 ? BASELINE.exited / (BASELINE.ticks / 60) : 0;
+}
+function baselineAvgQueue() {
+  return Object.values(BASELINE.queues).reduce((a,b)=>a+b,0) / 4;
+}
+
+// ── DQN live stats accumulators ───────────────────────
+const DQN_STATS = {
+  waitSum:    0,
+  waitCount:  0,
+  thruSum:    0,
+  thruCount:  0,
+  queueSum:   0,
+  queueCount: 0,
+  decisions:  0,
+};
+
+function dqnAvgWait()  { return DQN_STATS.waitCount  > 0 ? DQN_STATS.waitSum  / DQN_STATS.waitCount  : null; }
+function dqnThroughput(){ return DQN_STATS.thruCount  > 0 ? DQN_STATS.thruSum  / DQN_STATS.thruCount  : null; }
+function dqnAvgQueue() { return DQN_STATS.queueCount > 0 ? DQN_STATS.queueSum / DQN_STATS.queueCount : null; }
+
+// ── Comparison trend chart ────────────────────────────
+let cmpTrendChart = null;
+function initCmpTrendChart() {
+  const el = document.getElementById('cmp-trend-chart');
+  if (!el || cmpTrendChart) return;
+  cmpTrendChart = new Chart(el, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: 'Baseline',
+          data: [], borderColor: '#6b7280', borderWidth: 1.5,
+          pointRadius: 0, tension: 0.4, fill: false,
+        },
+        {
+          label: 'DQN',
+          data: [], borderColor: '#00d4aa', borderWidth: 1.5,
+          pointRadius: 0, tension: 0.4, fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', axis: 'x', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top',
+          labels: { color: '#6b7280', font: { size: 8, family: 'Space Mono' }, boxWidth: 12, padding: 8 } },
+        tooltip: {
+          backgroundColor: '#0d0f14', borderColor: 'rgba(255,255,255,0.07)',
+          borderWidth: 1, padding: 8, titleColor: '#9ca3af', bodyColor: '#e8eaf0',
+          callbacks: {
+            title: items => `Sample ${items[0].label}`,
+            label: item  => ` ${item.dataset.label}: ${Number(item.raw).toFixed(2)}s`,
+          },
+        },
+      },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.03)', drawTicks: false }, border: { display: false },
+             ticks: { maxTicksLimit: 5, color: '#374151', maxRotation: 0 } },
+        y: { grid: { color: 'rgba(255,255,255,0.04)', drawTicks: false }, border: { display: false },
+             ticks: { maxTicksLimit: 4, color: '#374151', callback: v => v.toFixed(1) + 's' },
+             suggestedMin: 0 },
+      },
+    },
+  });
+}
+
+// Trend history (sampled every ~5s)
+const CMP_TREND = { labels: [], base: [], dqn: [], sampleIdx: 0 };
+const CMP_TREND_MAX = 60;
+
+function sampleTrend() {
+  const bw = baselineAvgWait();
+  const dw = dqnAvgWait();
+  if (bw === 0 && dw === null) return;
+
+  CMP_TREND.sampleIdx++;
+  CMP_TREND.labels.push(CMP_TREND.sampleIdx);
+  CMP_TREND.base.push(parseFloat(bw.toFixed(2)));
+  CMP_TREND.dqn.push(dw !== null ? parseFloat(dw.toFixed(2)) : null);
+
+  if (CMP_TREND.labels.length > CMP_TREND_MAX) {
+    CMP_TREND.labels.shift(); CMP_TREND.base.shift(); CMP_TREND.dqn.shift();
+  }
+
+  if (!cmpTrendChart) initCmpTrendChart();
+  if (!cmpTrendChart) return;
+  cmpTrendChart.data.labels             = [...CMP_TREND.labels];
+  cmpTrendChart.data.datasets[0].data   = [...CMP_TREND.base];
+  cmpTrendChart.data.datasets[1].data   = [...CMP_TREND.dqn];
+  cmpTrendChart.update('none');
+}
+
+// ── Comparison UI updater ─────────────────────────────
+function updateCompareUI() {
+  const bWait  = baselineAvgWait();
+  const dWait  = dqnAvgWait()    ?? bWait;
+  const bThru  = baselineThroughput();
+  const dThru  = dqnThroughput() ?? bThru;
+  const bQueue = baselineAvgQueue();
+  const dQueue = dqnAvgQueue()   ?? bQueue;
+
+  const maxWait  = Math.max(bWait,  dWait,  0.001);
+  const maxThru  = Math.max(bThru,  dThru,  0.001);
+  const maxQueue = Math.max(bQueue, dQueue, 0.001);
+
+  // Bar widths
+  function setBar(id, pct) {
+    const el = document.getElementById(id);
+    if (el) el.style.width = Math.min(pct * 100, 100).toFixed(1) + '%';
+  }
+  setBar('cmp-wait-base-bar',  bWait  / maxWait);
+  setBar('cmp-wait-dqn-bar',   dWait  / maxWait);
+  setBar('cmp-thru-base-bar',  bThru  / maxThru);
+  setBar('cmp-thru-dqn-bar',   dThru  / maxThru);
+  setBar('cmp-queue-base-bar', bQueue / maxQueue);
+  setBar('cmp-queue-dqn-bar',  dQueue / maxQueue);
+
+  // Value labels
+  function setVal(id, v, fmt) { const el=document.getElementById(id); if(el) el.textContent=fmt(v); }
+  setVal('cmp-wait-base-val',  bWait,  v => v.toFixed(1)+'s');
+  setVal('cmp-wait-dqn-val',   dWait,  v => v.toFixed(1)+'s');
+  setVal('cmp-thru-base-val',  bThru,  v => v.toFixed(1)+'/s');
+  setVal('cmp-thru-dqn-val',   dThru,  v => v.toFixed(1)+'/s');
+  setVal('cmp-queue-base-val', bQueue, v => v.toFixed(1));
+  setVal('cmp-queue-dqn-val',  dQueue, v => v.toFixed(1));
+
+  // Improvement % badges
+  function pctBadge(id, base, ai, lowerIsBetter=true) {
+    const el = document.getElementById(id);
+    if (!el || base === 0) return;
+    const pct  = ((base - ai) / base * 100);
+    const good = lowerIsBetter ? pct > 0 : pct < 0;
+    const sign = pct > 0 ? '+' : '';
+    el.textContent  = sign + pct.toFixed(1) + '%';
+    el.className    = 'cmp-improve ' + (Math.abs(pct) < 0.5 ? 'neutral' : good ? 'good' : 'bad');
+  }
+  pctBadge('cmp-wait-pct',  bWait,  dWait,  true);
+  pctBadge('cmp-thru-pct',  bThru,  dThru,  false);
+  pctBadge('cmp-queue-pct', bQueue, dQueue, true);
+
+  // Scorecard
+  function scoreCell(id, base, ai, lowerIsBetter=true) {
+    const el = document.getElementById(id);
+    if (!el || base === 0) return;
+    const pct  = ((base - ai) / base * 100);
+    const good = lowerIsBetter ? pct > 0 : pct < 0;
+    const sign = pct > 0 ? '+' : '';
+    el.textContent = sign + pct.toFixed(1) + '%';
+    el.className   = 'cmp-score-val ' + (Math.abs(pct) < 0.5 ? '' : good ? 'good' : 'bad');
+  }
+  scoreCell('score-wait',  bWait,  dWait,  true);
+  scoreCell('score-thru',  bThru,  dThru,  false);
+  scoreCell('score-queue', bQueue, dQueue, true);
+
+  const decEl = document.getElementById('score-decisions');
+  if (decEl) decEl.textContent = DQN_STATS.decisions;
+}
+
+// ── Core ingest — called for every episode update ─────
+function ingestEpisode(d) {
+  const ep    = d.episode        ?? d.ep          ?? episodeCount + 1;
+  const total = d.total_episodes ?? d.total       ?? maxEpisodes;
+  const rew   = d.reward         ?? d.total_reward ?? null;
+  const wait  = d.avg_wait       ?? d.wait         ?? null;
+  const thru  = d.throughput     ?? d.thru         ?? null;
+  const eps   = d.epsilon        ?? d.eps          ?? null;
+
+  // Feed DQN stats accumulators for comparison
+  if (wait != null) { DQN_STATS.waitSum  += wait;  DQN_STATS.waitCount++;  }
+  if (thru != null) { DQN_STATS.thruSum  += thru;  DQN_STATS.thruCount++;  }
+  const queueLen = Object.values(SIM.queues).reduce((a,q)=>a+q.length,0)/4;
+  DQN_STATS.queueSum += queueLen; DQN_STATS.queueCount++;
+  DQN_STATS.decisions++;
+
+  // Sync simulation queues from backend state if provided
+  if (d.queues) {
+    const [qN, qS, qE, qW] = d.queues;
+    ['N','S','E','W'].forEach((dir, i) => {
+      const target = [qN, qS, qE, qW][i] ?? SIM.queues[dir].length;
+      while (SIM.queues[dir].length < target) SIM.queues[dir].push(makeVehicle(dir));
+      while (SIM.queues[dir].length > target) SIM.queues[dir].pop();
+    });
+  }
+
+  // Sync DQN action into simulation signal logic
+  if (d.action !== undefined && d.action !== null) {
+    SIM.dqnAction = d.action;
+  }
+
+  updateProgressBar(ep, total);
+  updateStats(rew, wait, thru, eps);
+
+  // Push to live charts + flash badges
+  if (rew  != null) { pushChartPoint('reward', ep, rew);  flashBadge('reward', rew,  v => v.toFixed(1)); }
+  if (wait != null) { pushChartPoint('wait',   ep, wait); flashBadge('wait',   wait, v => v.toFixed(2) + 's'); }
+  if (eps  != null) { pushChartPoint('eps',    ep, eps);  flashBadge('eps',    eps,  v => v.toFixed(3)); }
+
+  if (d.epsilon_end != null) {
+    chartData.eps.epsEnd  = d.epsilon_end;
+    charts.eps.__annotVal = d.epsilon_end;
+  }
+
+  if (ep % 5 === 0 || ep <= 3)
+    log(`r=${rew?.toFixed(1)??'?'}  wait=${wait?.toFixed(2)??'?'}s  ε=${eps?.toFixed(3)??'?'}`, 'info', ep, rew, d.loss ?? null);
+}
+
+// ── Simulation config ─────────────────────────────────
+let spawnRate  = 0.30;  // vehicles per second per approach lane
+let simSpeed   = 1;     // render-loop multiplier (1–8×)
+let sigSource  = 'dqn'; // 'dqn' | 'fixed'  (no 'auto' fallback — must be explicit)
+
+// Predict loop cadence: how often we call /predict (ms).
+// Independent of the render loop — decoupled by design.
+let predictCadenceMs = 500;
+let predictTimer     = null;
+
+function onSigSrcChange(val) {
+  sigSource = val;
+  document.getElementById('sig-src-val').textContent =
+    val === 'dqn' ? 'DQN' : 'Fixed 30s';
+  // Show cadence slider only in DQN mode
+  const row = document.getElementById('cadence-row');
+  if (row) row.style.display = val === 'dqn' ? '' : 'none';
+  restartPredictLoop();
+}
+
+function onCadenceChange(steps) {
+  // slider 1–10 → 100 ms – 2000 ms (steps of 200ms)
+  predictCadenceMs = steps * 200;
+  document.getElementById('cadence-val').textContent = predictCadenceMs + ' ms';
+  restartPredictLoop();
+}
+
+function onDensityChange(v) {
+  spawnRate = (v * 0.05).toFixed(2) * 1;
+  document.getElementById('density-val').textContent = spawnRate.toFixed(2) + ' veh/s';
+}
+
+// ── Intersection model ────────────────────────────────
+const MAX_Q = 20; // max vehicles per lane arm (matches backend env)
+
+const SIM = {
+  // Current signal phase — the ONLY source of truth for green/red.
+  // 0 = NS green (N and S lanes flow, E and W are red)
+  // 1 = EW green (E and W lanes flow, N and S are red)
+  phase: 0,
+
+  // How many sim-ticks the current phase has been held.
+  // Used only for the visual phase-hold indicator — NOT for signal switching.
+  phaseHeldTicks: 0,
+
+  // Timestamp (ms) when the phase last changed — shown in the signal overlay.
+  phaseChangedAt: 0,
+
+  // Last action received from /predict.  null until first response.
+  lastAction: null,
+
+  // Tracks whether an in-flight /predict request is pending.
+  // Prevents request pile-up when the backend is slow.
+  predictPending: false,
+
+  // Per-arm queues: array of vehicle objects
+  queues: { N: [], S: [], E: [], W: [] },
+
+  // Spawn accumulator (fractional vehicles waiting to be created)
+  spawnAcc: { N: 0, S: 0, E: 0, W: 0 },
+
+  // Returns true when dir is in the currently green phase
+  isGreen(dir) {
+    return (this.phase === 0 && (dir === 'N' || dir === 'S'))
+        || (this.phase === 1 && (dir === 'E' || dir === 'W'));
+  },
+
+  // Apply a new action from /predict.
+  // Enforces a minimum hold of MIN_GREEN_MS before a phase switch is allowed
+  // to prevent rapid oscillation when queue lengths are equal.
+  applyAction(action) {
+    const held = Date.now() - this.phaseChangedAt;
+    if (action === this.phase) return;          // no change needed
+    if (held < MIN_GREEN_MS)   return;          // hold minimum green time
+    this.phase          = action;
+    this.phaseHeldTicks = 0;
+    this.phaseChangedAt = Date.now();
+  },
+};
+
+// Minimum milliseconds a phase must be held before it can switch.
+// Prevents flickering when queue lengths are near-equal.
+// This is the ONLY timing constraint — all other timing comes from the AI.
+const MIN_GREEN_MS = 2000;
+
+// ── Vehicle factory ───────────────────────────────────
+let nextVid = 0;
+function makeVehicle(dir) {
+  return { id: nextVid++, dir, waitTicks: 0, moving: false, progress: 0 };
+}
+
+// ── DQN predict loop — calls /predict at `predictCadenceMs` interval ─────
+//
+// Completely decoupled from the render loop (requestAnimationFrame).
+// The render loop reads SIM.phase and draws; this loop writes SIM.phase.
+//
+// State read:   current queue lengths [N, S, E, W]  → POST /predict
+// State write:  SIM.applyAction(action)
+//
+// Guards:
+//   • predictPending  — skip tick if previous request is still in flight
+//   • sigSource check — stop immediately if user switches to 'fixed' mode
+//   • apiFetch silent — errors still throttled via LogThrottle, just not
+//                       logged verbosely on every tick
+
+function dqnPredictTick() {
+  if (sigSource !== 'dqn') return;
+  if (SIM.predictPending)  return;   // previous request still in flight
+
+  const state = [
+    SIM.queues.N.length,
+    SIM.queues.S.length,
+    SIM.queues.E.length,
+    SIM.queues.W.length,
+  ];
+
+  SIM.predictPending = true;
+  apiFetch('/predict', {
+    method:  'POST',
+    json:    { state, normalize: true },
+    timeout: Math.min(predictCadenceMs - 50, 1500),  // must finish before next tick
+    silent:  true,
+    logKey:  'predict',
+  }).then(({ ok, data }) => {
+    SIM.predictPending = false;
+    if (!ok || data?.action === undefined) return;
+
+    const action = data.action;  // 0 = NS green, 1 = EW green
+
+    // Apply only if the action is valid
+    if (action === 0 || action === 1) {
+      SIM.lastAction = action;
+      SIM.applyAction(action);
+    }
+  });
+}
+
+// ── Fixed-30s fallback mode ───────────────────────────
+// Only active when sigSource === 'fixed'. Uses a real timestamp so
+// speed changes don't affect timing — it's always 30 real seconds.
+const FIXED_PHASE_MS = 30_000;
+
+function fixedSignalTick() {
+  if (sigSource !== 'fixed') return;
+  const held = Date.now() - SIM.phaseChangedAt;
+  if (held >= FIXED_PHASE_MS) {
+    SIM.phase          = 1 - SIM.phase;
+    SIM.phaseHeldTicks = 0;
+    SIM.phaseChangedAt = Date.now();
+  }
+}
+
+// Start/restart the predict interval (called on mode or cadence change)
+function restartPredictLoop() {
+  if (predictTimer !== null) { clearInterval(predictTimer); predictTimer = null; }
+  if (sigSource === 'dqn') {
+    predictTimer = setInterval(dqnPredictTick, predictCadenceMs);
+  }
+}
+
+// Kick off the predict loop immediately on load (DQN is the default mode)
+SIM.phaseChangedAt = Date.now();
+restartPredictLoop();
+
+// ── Vehicle spawning ──────────────────────────────────
+function tickSpawn(dtSec) {
+  for (const dir of ['N','S','E','W']) {
+    SIM.spawnAcc[dir] += spawnRate * dtSec * simSpeed;
+    while (SIM.spawnAcc[dir] >= 1 && SIM.queues[dir].length < MAX_Q) {
+      SIM.queues[dir].push(makeVehicle(dir));
+      SIM.spawnAcc[dir] -= 1;
+    }
+    // discard overflow if queue is full
+    if (SIM.queues[dir].length >= MAX_Q) SIM.spawnAcc[dir] = 0;
+  }
+}
+
+// ── Vehicle movement (discharge) ─────────────────────
+const DISCHARGE_RATE = 1.8; // vehicles per second when green
+function tickDischarge(dtSec) {
+  for (const dir of ['N','S','E','W']) {
+    if (!SIM.isGreen(dir)) {
+      SIM.queues[dir].forEach(v => { v.waitTicks += simSpeed; v.moving = false; });
+      continue;
+    }
+    // Lead vehicle exits at DISCHARGE_RATE; rest inch forward
+    const dischargeTicks = DISCHARGE_RATE * dtSec * simSpeed;
+    SIM.queues[dir].forEach((v, idx) => {
+      if (idx === 0) {
+        v.progress += dischargeTicks;
+        v.moving = true;
+        v.waitTicks = 0;
+      } else {
+        v.moving = SIM.queues[dir][idx-1].progress > idx * 0.5;
+        if (!v.moving) v.waitTicks += simSpeed;
+      }
+    });
+    // Remove vehicles that have fully exited (progress >= 1)
+    while (SIM.queues[dir].length > 0 && SIM.queues[dir][0].progress >= 1) {
+      SIM.queues[dir].shift();
+    }
+  }
+}
+
+// ── Queue HUD updater ─────────────────────────────────
+let selectedIntIdx = 0;
+function updateQueueHUD() {
+  const dirs   = ['N','S','E','W'];
+  const ids    = ['north','south','east','west'];
+  let totalWait = 0, totalVeh = 0;
+
+  dirs.forEach((d, i) => {
+    const q = SIM.queues[d].length;
+    const pct = Math.min(q / MAX_Q * 100, 100);
+    const bar = document.getElementById('qb-' + ids[i]);
+    const cnt = document.getElementById('qc-' + ids[i]);
+    if (!bar) return;
+    bar.style.width = pct + '%';
+    bar.className = 'queue-bar' + (pct > 70 ? ' danger' : pct > 40 ? ' warn' : '');
+    cnt.textContent = q;
+    SIM.queues[d].forEach(v => { totalWait += v.waitTicks; totalVeh++; });
+  });
+
+  const avgWait = totalVeh > 0 ? (totalWait / totalVeh / 60).toFixed(1) : '—';
+  const el = document.getElementById('queue-avg-wait');
+  if (el) el.textContent = avgWait === '—' ? '—' : avgWait + 's';
+}
+
+// ── Intersection list ─────────────────────────────────
+const intersections = [
+  { id:'INT-01', name:'Main & 5th'     },
+  { id:'INT-02', name:'Broadway & Oak' },
+  { id:'INT-03', name:'Park & 3rd'     },
+  { id:'INT-04', name:'Harbor Dr'      },
+  { id:'INT-05', name:'Central Ave'    },
+];
+function renderIntersectionList() {
+  document.getElementById('int-list').innerHTML = intersections.map((int, idx) => {
+    const totalQ = Object.values(SIM.queues).reduce((a,q) => a + q.length, 0);
+    const badge = idx === 0
+      ? `<span class="int-badge ${totalQ > 10 ? 'red' : totalQ > 5 ? 'amber' : 'green'}">${totalQ} veh</span>`
+      : `<span class="int-badge green">—</span>`;
+    return `<div class="intersection-item ${idx===selectedIntIdx?'active':''}" onclick="selectIntersection(${idx})">
+      <span class="int-name">${int.name}</span>${badge}</div>`;
+  }).join('');
+}
+function selectIntersection(idx) {
+  selectedIntIdx = idx;
+  renderIntersectionList();
+}
+renderIntersectionList();
+
+// ── Canvas map ────────────────────────────────────────
+const mapCanvas = document.getElementById('map-canvas');
+const ctx = mapCanvas.getContext('2d');
+
+// Layout: featured intersection at centre, 4 context nodes around it
+const CX = () => mapCanvas.width  * 0.5;
+const CY = () => mapCanvas.height * 0.48;
+const ROAD_W  = 28;   // road half-width in px
+const STOP_DIST = 40; // px from centre to stop line
+const QUEUE_SLOT = 14; // px per vehicle in queue
+
+// Small context intersections (fixed fractions)
+const ctxNodes = [
+  {fx:0.18, fy:0.22}, {fx:0.82, fy:0.22},
+  {fx:0.18, fy:0.80}, {fx:0.82, fy:0.80},
+];
+
+function drawRoads() {
+  const cx = CX(), cy = CY();
+  const W = mapCanvas.width, H = mapCanvas.height;
+
+  // Main roads through featured intersection
+  ctx.fillStyle = 'rgba(255,255,255,0.055)';
+  ctx.fillRect(cx - ROAD_W, 0,        ROAD_W*2, H);  // N-S road
+  ctx.fillRect(0,  cy - ROAD_W, W,    ROAD_W*2);     // E-W road
+
+  // Road markings (centre dashes)
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.setLineDash([12, 16]);
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx, 0);       ctx.lineTo(cx, cy - STOP_DIST - 4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy + STOP_DIST + 4); ctx.lineTo(cx, H);       ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, cy);       ctx.lineTo(cx - STOP_DIST - 4, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx + STOP_DIST + 4, cy); ctx.lineTo(W, cy);       ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Context roads (thin lines to context nodes)
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 10;
+  ctxNodes.forEach(n => {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(n.fx * W, n.fy * H);
+    ctx.stroke();
+  });
+}
+
+function drawStopLines() {
+  const cx = CX(), cy = CY();
+  const nsGreen = SIM.phase === 0;
+  const ewGreen = SIM.phase === 1;
+
+  // Stop line + signal colour
+  const arms = [
+    { dir:'N', x1:cx - ROAD_W, y1:cy - STOP_DIST, x2:cx, y2:cy - STOP_DIST, green: nsGreen },
+    { dir:'S', x1:cx,          y1:cy + STOP_DIST, x2:cx + ROAD_W, y2:cy + STOP_DIST, green: nsGreen },
+    { dir:'E', x1:cx + STOP_DIST, y1:cy - ROAD_W, x2:cx + STOP_DIST, y2:cy, green: ewGreen },
+    { dir:'W', x1:cx - STOP_DIST, y1:cy,          x2:cx - STOP_DIST, y2:cy + ROAD_W, green: ewGreen },
+  ];
+  arms.forEach(a => {
+    ctx.strokeStyle = a.green ? '#22c55e' : '#ef4444';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(a.x1, a.y1); ctx.lineTo(a.x2, a.y2); ctx.stroke();
+  });
+}
+
+function drawIntersectionBox() {
+  const cx = CX(), cy = CY();
+  ctx.fillStyle = 'rgba(255,255,255,0.04)';
+  ctx.fillRect(cx - ROAD_W, cy - ROAD_W, ROAD_W*2, ROAD_W*2);
+  // Yellow box grid (UK junction box)
+  ctx.strokeStyle = 'rgba(245,158,11,0.12)';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(cx - ROAD_W, cy - ROAD_W, ROAD_W*2, ROAD_W*2);
+}
+
+function drawSignalHeads() {
+  const cx = CX(), cy = CY();
+  // Draw tiny 3-light signal heads at each arm
+  const heads = [
+    { x: cx + ROAD_W + 6, y: cy - STOP_DIST - 4, green: SIM.phase === 0 },   // N arm, right side
+    { x: cx - ROAD_W - 6, y: cy + STOP_DIST + 4, green: SIM.phase === 0 },   // S arm, left side
+    { x: cx + STOP_DIST + 4, y: cy + ROAD_W + 6, green: SIM.phase === 1 },   // E arm, bottom
+    { x: cx - STOP_DIST - 4, y: cy - ROAD_W - 6, green: SIM.phase === 1 },   // W arm, top
+  ];
+
+  heads.forEach(h => {
+    // Housing
+    ctx.fillStyle = '#1a1d24';
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 0.5;
+    roundRect(ctx, h.x - 5, h.y - 12, 10, 24, 3);
+    ctx.fill(); ctx.stroke();
+
+    // Red light
+    ctx.beginPath(); ctx.arc(h.x, h.y - 7, 3, 0, Math.PI*2);
+    ctx.fillStyle = h.green ? '#3d1515' : '#ef4444';
+    if (!h.green) { ctx.shadowColor = '#ef4444'; ctx.shadowBlur = 8; }
+    ctx.fill(); ctx.shadowBlur = 0;
+
+    // Green light
+    ctx.beginPath(); ctx.arc(h.x, h.y + 7, 3, 0, Math.PI*2);
+    ctx.fillStyle = h.green ? '#22c55e' : '#0d2e1a';
+    if (h.green) { ctx.shadowColor = '#22c55e'; ctx.shadowBlur = 8; }
+    ctx.fill(); ctx.shadowBlur = 0;
+  });
+}
+
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x+r, y); c.lineTo(x+w-r, y); c.arcTo(x+w, y, x+w, y+r, r);
+  c.lineTo(x+w, y+h-r); c.arcTo(x+w, y+h, x+w-r, y+h, r);
+  c.lineTo(x+r, y+h); c.arcTo(x, y+h, x, y+h-r, r);
+  c.lineTo(x, y+r); c.arcTo(x, y, x+r, y, r);
+  c.closePath();
+}
+
+function drawQueues() {
+  const cx = CX(), cy = CY();
+
+  // Arm layout: direction → queue grows away from intersection
+  const arms = {
+    N: { qx: v => cx - 8,                 qy: v => cy - STOP_DIST - 8 - v * QUEUE_SLOT },
+    S: { qx: v => cx + 8,                 qy: v => cy + STOP_DIST + 8 + v * QUEUE_SLOT },
+    E: { qx: v => cx + STOP_DIST + 8 + v * QUEUE_SLOT, qy: v => cy - 8 },
+    W: { qx: v => cx - STOP_DIST - 8 - v * QUEUE_SLOT, qy: v => cy + 8 },
+  };
+
+  for (const [dir, layout] of Object.entries(arms)) {
+    const green = SIM.isGreen(dir);
+    SIM.queues[dir].forEach((veh, i) => {
+      const px = layout.qx(i);
+      const py = layout.qy(i);
+
+      // Vehicle body
+      const isMoving = green && i < 2 && veh.moving;
+      const waitSec  = veh.waitTicks / 60;
+
+      // Colour: moving = blue, waiting short = amber, waiting long = red
+      let fill;
+      if (isMoving)          fill = '#3b82f6';
+      else if (waitSec < 8)  fill = '#f59e0b';
+      else                   fill = '#ef4444';
+
+      // Draw as a tiny rectangle oriented along the road
+      const isNS = dir === 'N' || dir === 'S';
+      const vw = isNS ? 8 : 11;
+      const vh = isNS ? 11 : 8;
+
+      ctx.fillStyle = fill;
+      ctx.globalAlpha = isMoving ? 0.95 : Math.max(0.5, 1 - waitSec * 0.02);
+      ctx.fillRect(px - vw/2, py - vh/2, vw, vh);
+      ctx.globalAlpha = 1;
+
+      // Wait time label on first queued non-moving vehicle
+      if (i === 0 && !isMoving && waitSec > 2) {
+        ctx.fillStyle = fill;
+        ctx.font = '700 8px Space Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(waitSec.toFixed(0) + 's',
+          px + (isNS ? 12 : 0),
+          py + (isNS ? 0 : -10));
+      }
+    });
+  }
+  ctx.textAlign = 'left';
+}
+
+function drawContextNodes() {
+  const W = mapCanvas.width, H = mapCanvas.height;
+  ctxNodes.forEach((n, i) => {
+    const nx = n.fx * W, ny = n.fy * H;
+    ctx.beginPath(); ctx.arc(nx, ny, 8, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '700 8px Space Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('INT-0' + (i+2), nx, ny + 3);
+  });
+}
+
+function drawDirectionLabels() {
+  const cx = CX(), cy = CY();
+  const labels = [
+    { text: 'N', x: cx, y: cy - STOP_DIST - QUEUE_SLOT * MAX_Q * 0.6 - 14, q: SIM.queues.N.length },
+    { text: 'S', x: cx, y: cy + STOP_DIST + QUEUE_SLOT * MAX_Q * 0.6 + 22, q: SIM.queues.S.length },
+    { text: 'E', x: cx + STOP_DIST + QUEUE_SLOT * MAX_Q * 0.6 + 22, y: cy, q: SIM.queues.E.length },
+    { text: 'W', x: cx - STOP_DIST - QUEUE_SLOT * MAX_Q * 0.6 - 14, y: cy, q: SIM.queues.W.length },
+  ];
+  labels.forEach(l => {
+    const pct = l.q / MAX_Q;
+    const col = pct > 0.7 ? '#ef4444' : pct > 0.4 ? '#f59e0b' : '#6b7280';
+    ctx.fillStyle = col;
+    ctx.font = '500 10px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${l.text} (${l.q})`, l.x, l.y);
+  });
+  ctx.textAlign = 'left';
+}
+
+function drawMap() {
+  const W = mapCanvas.width, H = mapCanvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Subtle grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.025)';
+  ctx.lineWidth = 1;
+  for (let x=0; x<W; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y=0; y<H; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  drawRoads();
+  drawContextNodes();
+  drawIntersectionBox();
+  drawStopLines();
+  drawQueues();
+  drawSignalHeads();
+  drawDirectionLabels();
+}
+
+function resizeCanvas() {
+  const r = mapCanvas.parentElement.getBoundingClientRect();
+  mapCanvas.width  = r.width;
+  mapCanvas.height = r.height;
+}
+resizeCanvas();
+window.addEventListener('resize', () => { resizeCanvas(); Object.values(charts).forEach(c => c.resize()); });
+
+// ── Signal overlay panel ──────────────────────────────
+// Shows real wall-clock time held (not tick-based), source label, and
+// a ✦ indicator when a fresh DQN action was just applied.
+function renderSignalOverlay() {
+  const nsGreen  = SIM.phase === 0;
+  const heldSec  = Math.round((Date.now() - SIM.phaseChangedAt) / 1000);
+  const srcLabel = sigSource === 'dqn' ? 'DQN' : '30s';
+
+  const signals = [
+    { id: 'INT-01', green: nsGreen,  label: 'NS' },
+    { id: 'INT-02', green: !nsGreen, label: 'EW' },
+    { id: 'INT-03', green: nsGreen,  label: 'NS' },
+  ];
+
+  document.getElementById('signal-overlay').innerHTML = signals.map((s, i) => `
+    <div class="signal-box">
+      <div class="lights">
+        <div class="light r ${!s.green ? 'on' : ''}"></div>
+        <div class="light y"></div>
+        <div class="light g ${s.green  ? 'on' : ''}"></div>
+      </div>
+      <span class="sig-name">${s.id}</span>
+      <span class="sig-timer" style="color:${sigSource==='dqn'?'var(--accent)':'var(--warn)'}">
+        ${i === 0 ? srcLabel + ' ' + heldSec + 's' : s.label}
+      </span>
+    </div>`).join('');
+}
+renderSignalOverlay();
+
+// ── Main simulation loop ──────────────────────────────
+let lastTs        = null;
+let simTick       = 0;
+let cmpSampleTick = 0;
+(function simLoop(ts) {
+  const dtMs  = lastTs ? Math.min(ts - lastTs, 50) : 16.67;
+  lastTs = ts;
+  const dtSec = dtMs / 1000;
+
+  for (let step = 0; step < simSpeed; step++) {
+    // Signal phase is written by the predict loop (DQN) or fixedSignalTick.
+    // The render loop never sets SIM.phase directly.
+    fixedSignalTick();          // no-op when sigSource === 'dqn'
+    SIM.phaseHeldTicks++;
+
+    tickSpawn(dtSec / simSpeed);
+    tickDischarge(dtSec / simSpeed);
+    tickBaseline(dtSec / simSpeed);
+
+    simTick++;
+    cmpSampleTick++;
+  }
+
+  drawMap();
+
+  if (simTick % 60 === 0)  renderSignalOverlay();
+  if (simTick % 30 === 0) { updateQueueHUD(); renderIntersectionList(); }
+
+  if (cmpSampleTick >= 300) {
+    cmpSampleTick = 0;
+    sampleTrend();
+    updateCompareUI();
+  }
+
+  requestAnimationFrame(simLoop);
+})(0);
+
+// ── Training UI state ─────────────────────────────────
+function setTrainingUI(active) {
+  const btnTrain = document.getElementById('btn-train');
+  const btnStop  = document.getElementById('btn-stop');
+  const btnReset = document.getElementById('btn-reset');
+
+  if (btnTrain) {
+    btnTrain.disabled = active;
+    btnTrain.classList.toggle('loading', active);
+  }
+  if (btnStop)  btnStop.disabled  = !active;
+  if (btnReset) btnReset.disabled = active;
+
+  // Disable config sliders while training
+  ['lr-range','gamma-range','eps-range','steps-range','algo-select'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = active;
+  });
+}
+
+// ── Status pill ───────────────────────────────────────
+// States: 'disconnected' | 'connected' | 'training' | 'completed'
+function setStatus(state) {
+  const dot   = document.getElementById('conn-dot');
+  const label = document.getElementById('conn-label');
+  dot.style.background = '';
+  dot.className = 'status-dot';
+
+  if (state === 'training') {
+    dot.className     = 'status-dot live';
+    label.textContent = 'Training...';
+    setTrainingUI(true);
+  } else if (state === 'completed') {
+    dot.style.background = 'var(--accent2)';
+    label.textContent    = 'Completed';
+    setTrainingUI(false);
+  } else if (state === 'connected') {
+    dot.style.background = 'var(--accent)';
+    label.textContent    = 'Connected';
+    setTrainingUI(false);
+  } else {
+    label.textContent = 'Disconnected';
+    setTrainingUI(false);
+  }
+}
+
+// Initialise button state on page load
+setTrainingUI(false);
+
+// ── Structured log ────────────────────────────────────
+const MAX_LOG_ROWS = 300;
+
+function log(msg, type = '', ep = null, reward = null, loss = null) {
+  const rows = document.getElementById('log-rows');
+  if (!rows) return;
+
+  const now = new Date();
+  const ts  = [now.getHours(), now.getMinutes(), now.getSeconds()]
+               .map(n => String(n).padStart(2, '0')).join(':');
+  const el  = document.createElement('div');
+
+  if (ep !== null) {
+    el.className = 'log-entry';
+    el.innerHTML =
+      `<span class="log-time">${ts}</span>` +
+      `<span class="log-ep">${ep}</span>` +
+      `<span class="log-msg ${type}">${msg}</span>` +
+      `<span class="log-reward">${reward !== null ? Number(reward).toFixed(1) : '—'}</span>` +
+      `<span class="log-loss">${loss   !== null ? Number(loss).toExponential(1) : '—'}</span>`;
+  } else {
+    el.className = 'log-entry plain';
+    el.innerHTML =
+      `<span class="log-time">${ts}</span>` +
+      `<span class="log-msg ${type}">${msg}</span>`;
+  }
+
+  rows.appendChild(el);
+  rows.scrollTop = rows.scrollHeight;
+  while (rows.children.length > MAX_LOG_ROWS) rows.removeChild(rows.firstChild);
+}
+
+// ── Log throttle — prevents repeated identical errors spamming the log ──
+// Each key gets its own bucket.  If the same key fires within `cooldownMs`
+// an internal counter increments silently.  When the cooldown expires the
+// suppression count is flushed as a single summary line.
+class LogThrottle {
+  constructor(cooldownMs = 10_000) {
+    this._cd    = cooldownMs;
+    this._state = {};   // key → { timer, suppressed, lastMsg, lastType }
+  }
+
+  // Call instead of log() for any message that can repeat.
+  // `key` must be a stable string that identifies the error category.
+  fire(key, msg, type = 'err') {
+    const now = Date.now();
+    let s = this._state[key];
+
+    if (!s) {
+      // First occurrence — log immediately, start cooldown window
+      s = this._state[key] = { timer: null, suppressed: 0, lastMsg: msg, lastType: type };
+      log(msg, type);
+      s.timer = setTimeout(() => this._flush(key), this._cd);
+      return;
+    }
+
+    // Within cooldown — suppress and count
+    s.suppressed++;
+    s.lastMsg  = msg;
+    s.lastType = type;
+  }
+
+  // Flush suppressed count and reset the bucket
+  _flush(key) {
+    const s = this._state[key];
+    if (!s) return;
+    if (s.suppressed > 0) {
+      log(`  ↳ …repeated ×${s.suppressed} (last: ${s.lastMsg})`, s.lastType);
+    }
+    delete this._state[key];
+  }
+
+  // Manually clear a key (e.g. when backend recovers)
+  clear(key) {
+    const s = this._state[key];
+    if (s?.timer) clearTimeout(s.timer);
+    delete this._state[key];
+  }
+}
+
+const throttle = new LogThrottle(10_000);   // 10-second cooldown windows
+
+// ══════════════════════════════════════════════════════════════════════════
+// SIMULATION ENGINE
+// Mirrors the Flask backend's /status, /train, /train/stop, /predict API.
+// Every response object matches the real backend's shape exactly so that
+// flipping SIMULATION_MODE = false requires zero other code changes.
+//
+// To swap in the real backend:
+//   1. Deploy server.py (see README)
+//   2. Set API_BASE to your deployment URL above
+//   3. Set SIMULATION_MODE = false
+// ══════════════════════════════════════════════════════════════════════════
+
+// ── Shared simulated backend state ───────────────────────────────────────
+// Written by simulateTrain's interval, read by simulatedApiFetch('/status')
+const simBackend = {
+  status:         'idle',   // idle | running | completed | stopped | error
+  session_id:     null,
+  episode:        0,
+  total_episodes: 0,
+  reward:         0,
+  avg_wait:       0,
+  throughput:     0,
+  epsilon:        1.0,
+  loss:           null,
+  best_reward:    -Infinity,
+  error:          null,
+  _timer:         null,
+  _stopFlag:      false,
+  _epsilon:       1.0,      // internal — decayed each episode
+
+  // Returns an object with the same shape as Flask's GET /status response
+  getStatus() {
+    return {
+      connected:      true,
+      status:         this.status,
+      training:       this.status === 'running',
+      session_id:     this.session_id,
+      episode:        this.episode,
+      total_episodes: this.total_episodes,
+      reward:         this.reward,
+      avg_wait:       this.avg_wait,
+      throughput:     this.throughput,
+      epsilon:        this.epsilon,
+      loss:           this.loss,
+      best_reward:    isFinite(this.best_reward) ? this.best_reward : null,
+      error:          this.error,
+    };
+  },
+};
+
+// ── simulateTrain — called by simulatedApiFetch for POST /train ───────────
+// Runs one episode every 100 ms in a setInterval.
+// Generates a realistic DQN training curve:
+//   • reward:     –300 → –50  (improving with noise)
+//   • avg_wait:    45 s → 8 s (decreasing with noise)
+//   • throughput:  0.5 → 2.5  (increasing)
+//   • epsilon:     1.0 → 0.05 (exponential decay)
+//   • loss:        1.0 → 0.01 (exponential decay)
+function simulateTrain(params) {
+  if (simBackend._timer) clearInterval(simBackend._timer);
+
+  const totalEps     = params.episodes      ?? 500;
+  const epsilonDecay = params.epsilon_decay ?? 0.995;
+  const epsilonEnd   = params.epsilon_end   ?? 0.05;
+
+  simBackend.status         = 'running';
+  simBackend.session_id     = 'sim-' + Math.random().toString(36).slice(2, 10);
+  simBackend.episode        = 0;
+  simBackend.total_episodes = totalEps;
+  simBackend.reward         = 0;
+  simBackend.avg_wait       = 45.0;
+  simBackend.throughput     = 0.5;
+  simBackend._epsilon       = params.epsilon_start ?? 1.0;
+  simBackend.epsilon        = simBackend._epsilon;
+  simBackend.loss           = 1.0;
+  simBackend.best_reward    = -Infinity;
+  simBackend.error          = null;
+  simBackend._stopFlag      = false;
+
+  simBackend._timer = setInterval(() => {
+    if (simBackend._stopFlag || simBackend.episode >= totalEps) {
+      clearInterval(simBackend._timer);
+      simBackend._timer  = null;
+      simBackend.status  = simBackend._stopFlag ? 'stopped' : 'completed';
+      return;
+    }
+
+    simBackend.episode++;
+    const ep       = simBackend.episode;
+    const progress = ep / totalEps;   // 0 → 1
+
+    // ── Reward curve: starts −300, improves toward −50 with ±20 noise ──
+    const reward = (-300 + progress * 250) + (Math.random() - 0.5) * 40;
+    if (reward > simBackend.best_reward) simBackend.best_reward = reward;
+    simBackend.reward = parseFloat(reward.toFixed(2));
+
+    // ── Avg wait: 45 s → 8 s with ±3 noise ──────────────────────────────
+    simBackend.avg_wait = parseFloat(
+      Math.max(3, (45 - progress * 37) + (Math.random() - 0.5) * 6).toFixed(2)
+    );
+
+    // ── Throughput: 0.5 → 2.5 veh/s with ±0.15 noise ────────────────────
+    simBackend.throughput = parseFloat(
+      (0.5 + progress * 2.0 + (Math.random() - 0.5) * 0.3).toFixed(2)
+    );
+
+    // ── Epsilon decay ─────────────────────────────────────────────────────
+    simBackend._epsilon   = Math.max(epsilonEnd, simBackend._epsilon * epsilonDecay);
+    simBackend.epsilon    = parseFloat(simBackend._epsilon.toFixed(4));
+
+    // ── Loss: 1.0 → ~0.005 exponentially ─────────────────────────────────
+    simBackend.loss = parseFloat(
+      (Math.max(0.001, 1.0 * Math.pow(0.991, ep)) + Math.random() * 0.005).toFixed(5)
+    );
+
+  }, 100);  // one episode every 100 ms  (500 eps = 50 s)
+
+  return simBackend.session_id;
+}
+
+// ── simulatePredict — called by simulatedApiFetch for POST /predict ───────
+// Rule: green the more congested pair of lanes.
+// Identical contract to Flask's /predict response so the signal loop works
+// without modification when switching to a real backend.
+//
+// state: [north, south, east, west]  (normalised 0–1 or raw counts)
+// Returns: { action, action_name, q_values, epsilon }
+function simulatePredict(state) {
+  const [n, s, e, w] = state;
+  const ns = n + s;
+  const ew = e + w;
+
+  // Tie-break: keep current phase to avoid unnecessary switches
+  const action = ns > ew ? 0
+               : ew > ns ? 1
+               : SIM.phase;        // queues equal — hold current
+
+  // Plausible Q-values (negative sum of waiting vehicles, scaled)
+  const qNS = -(ns * 10);
+  const qEW = -(ew * 10);
+
+  return {
+    action,
+    action_name: action === 0 ? 'NS green' : 'EW green',
+    q_values:    [parseFloat(qNS.toFixed(2)), parseFloat(qEW.toFixed(2))],
+    epsilon:     simBackend.epsilon,
+  };
+}
+
+// ── simulatedApiFetch — routes calls to the local simulation engine ────────
+// Matches apiFetch's return shape: { ok, status, data, error }
+// Adds a small random latency (10–40 ms) to mimic network round-trips.
+async function simulatedApiFetch(path, opts = {}) {
+  // Simulated network latency
+  await new Promise(r => setTimeout(r, 10 + Math.random() * 30));
+
+  if (path === '/status') {
+    return { ok: true, status: 200, data: simBackend.getStatus(), error: null };
+  }
+
+  if (path === '/train' && opts.method === 'POST') {
+    const params     = opts.json ?? {};
+    const session_id = simulateTrain(params);
+    return {
+      ok:     true,
+      status: 202,
+      data:   {
+        session_id,
+        status:    'running',
+        message:   `[SIM] DQN training started — ${params.episodes ?? 500} episodes`,
+        episodes:  params.episodes  ?? 500,
+        max_steps: params.max_steps ?? 200,
+      },
+      error: null,
+    };
+  }
+
+  if (path === '/train/stop') {
+    if (simBackend._timer) {
+      clearInterval(simBackend._timer);
+      simBackend._timer = null;
+    }
+    simBackend._stopFlag = true;
+    simBackend.status    = 'stopped';
+    return {
+      ok:     true,
+      status: 200,
+      data:   { status: 'stopped', session_id: simBackend.session_id },
+      error:  null,
+    };
+  }
+
+  if (path === '/predict' && opts.method === 'POST') {
+    const state  = opts.json?.state ?? [0, 0, 0, 0];
+    const result = simulatePredict(state);
+    return { ok: true, status: 200, data: result, error: null };
+  }
+
+  return {
+    ok:     false,
+    status: 404,
+    data:   null,
+    error:  `[SIM] No handler for ${opts.method ?? 'GET'} ${path}`,
+  };
+}
+
+// ── apiFetch — centralized fetch wrapper ─────────────────────────────────
+//
+// Single entry point for all backend calls.
+//
+// In SIMULATION_MODE:   routes to simulatedApiFetch (no HTTP, no CORS)
+// In production mode:   makes a real fetch with timeout + optional retry
+//
+// Always returns { ok, status, data, error } — never throws.
+// Caller uses `opts.silent` to suppress per-request log lines.
+
+async function apiFetch(path, opts = {}) {
+  // ── Simulation mode: skip HTTP entirely ──────────────────────────────
+  if (SIMULATION_MODE) {
+    const result = await simulatedApiFetch(path, opts);
+    // Log non-silent requests the same way the real path does
+    if (!opts.silent) {
+      const method = opts.method ?? 'GET';
+      if (result.ok) {
+        log(`→ ${method} ${path} ← ${result.status} OK`, 'info');
+      } else {
+        throttle.fire(opts.logKey ?? path,
+          `✕ ${method} ${path} — ${result.error}`, 'err');
+      }
+    }
+    return result;
+  }
+
+  // ── Real backend path ─────────────────────────────────────────────────
+  const url        = `${API_BASE}${path}`;
+  const timeoutMs  = opts.timeout ?? 5000;
+  const maxRetries = opts.retries ?? 1;  // total attempts (1 = no retry)
+  const silent     = opts.silent  ?? false;
+  const logKey     = opts.logKey  ?? path;
+
+  if (!silent) log(`→ ${opts.method ?? 'GET'} ${url}`, 'info');
+
+  let lastError = '';
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort('timeout'), timeoutMs);
+
+    const fetchOpts = {
+      method:  opts.method ?? 'GET',
+      signal:  controller.signal,
+      headers: {},
+    };
+    if (opts.json !== undefined) {
+      fetchOpts.headers['Content-Type'] = 'application/json';
+      fetchOpts.body = JSON.stringify(opts.json);
+    }
+
+    let res, data;
+    try {
+      res = await fetch(url, fetchOpts);
+      clearTimeout(timeoutId);
+    } catch (err) {
+      clearTimeout(timeoutId);
+
+      const isTimeout = err.name === 'AbortError' &&
+                        (controller.signal.reason === 'timeout' ||
+                         String(err.message).toLowerCase().includes('abort'));
+
+      lastError = isTimeout
+        ? `timed out after ${timeoutMs}ms`
+        : err.name === 'TypeError'
+          ? `unreachable (network error or CORS) — is ${API_BASE} running?`
+          : err.message;
+
+      if (attempt < maxRetries) {
+        if (!silent) log(`  retry ${attempt}/${maxRetries - 1} — ${lastError}`, 'warn');
+        await new Promise(r => setTimeout(r, 500 * attempt));  // back-off: 500ms, 1s, …
+        continue;
+      }
+
+      if (!silent) {
+        throttle.fire(logKey, `✕ ${fetchOpts.method} ${url} — ${lastError}`, 'err');
+        setStatus('disconnected');
+      }
+      return { ok: false, status: null, data: null, error: lastError };
+    }
+
+    if (!silent) {
+      if (res.ok) throttle.clear(logKey);
+      else throttle.fire(logKey, `✕ ${fetchOpts.method} ${url} → HTTP ${res.status}`, 'err');
+    }
+
+    try { data = await res.json(); } catch { data = null; }
+
+    if (!res.ok) {
+      const errorMsg = data?.detail ?? data?.message ?? data?.error ?? `HTTP ${res.status}`;
+      if (!silent && res.status >= 500) setStatus('disconnected');
+      return { ok: false, status: res.status, data, error: errorMsg };
+    }
+
+    return { ok: true, status: res.status, data, error: null };
+  }
+
+  // Exhausted retries
+  return { ok: false, status: null, data: null, error: lastError };
+}
+
+// ── Reset simulation ──────────────────────────────────
+function resetSimulation() {
+  for (const dir of ['N','S','E','W']) {
+    SIM.queues[dir]   = [];
+    SIM.spawnAcc[dir] = 0;
+  }
+  SIM.phase          = 0;
+  SIM.phaseHeldTicks = 0;
+  SIM.phaseChangedAt = Date.now();
+  SIM.lastAction     = null;
+  SIM.predictPending = false;
+  restartPredictLoop();
+
+  for (const dir of ['N','S','E','W']) {
+    BASELINE.queues[dir]   = 0;
+    BASELINE.spawnAcc[dir] = 0;
+  }
+  BASELINE.phase     = 0;
+  BASELINE.timer     = 0;
+  BASELINE.totalWait = 0;
+  BASELINE.totalVeh  = 0;
+  BASELINE.exited    = 0;
+  BASELINE.ticks     = 0;
+
+  Object.assign(DQN_STATS, { waitSum:0, waitCount:0, thruSum:0, thruCount:0,
+                              queueSum:0, queueCount:0, decisions:0 });
+
+  CMP_TREND.labels.length = 0;
+  CMP_TREND.base.length   = 0;
+  CMP_TREND.dqn.length    = 0;
+  CMP_TREND.sampleIdx     = 0;
+  if (cmpTrendChart) {
+    cmpTrendChart.data.labels           = [];
+    cmpTrendChart.data.datasets[0].data = [];
+    cmpTrendChart.data.datasets[1].data = [];
+    cmpTrendChart.update('none');
+  }
+
+  updateCompareUI();
+  log('Simulation reset.', 'warn');
+}
+
+// ── Backend health check ──────────────────────────────
+async function checkBackendHealth() {
+  // Show sim badge immediately if in simulation mode
+  const badge = document.getElementById('sim-mode-badge');
+  if (badge) badge.style.display = SIMULATION_MODE ? 'inline-block' : 'none';
+
+  if (SIMULATION_MODE) {
+    setStatus('connected');
+    log('[SIM] Simulation mode active — no backend required.', 'warn');
+    log('[SIM] Set SIMULATION_MODE=false + deploy server.py to use a real backend.', 'warn');
+    return;
+  }
+
+  // Real backend probe
+  const { ok, status, data } = await apiFetch('/status', {
+    timeout: 3000,
+    retries: 2,     // try up to 2 times before giving up
+    logKey:  'health',
+  });
+
+  if (!ok) {
+    setStatus('disconnected');
+    return;
+  }
+
+  if (data.status === 'running') {
+    training    = true;
+    maxEpisodes = data.total_episodes ?? maxEpisodes;
+    setStatus('training');
+    log(`← ${status} Resuming training — ep ${data.episode ?? 0}/${data.total_episodes ?? '?'}`, 'success');
+    lastIngestedEp = data.episode ?? -1;
+    startPolling();
+  } else {
+    setStatus('connected');
+    log(`← ${status} Backend ready (${data.status ?? 'idle'})`, 'success');
+  }
+}
+
+// Run health check as soon as DOM is available.
+// If the script loads after DOMContentLoaded (e.g. cached page, fast browser),
+// readyState is already 'complete' — call directly instead of waiting for the event.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', checkBackendHealth);
+} else {
+  checkBackendHealth();
+}
+
+// ── Primary polling loop — GET /status every 1000 ms ─────────────────────
+function clearPollTimer() {
+  if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
+}
+function stopPolling() { clearPollTimer(); }
+
+function startPolling() {
+  clearPollTimer();
+  const pollTarget = SIMULATION_MODE ? '[Simulation]/status' : `${API_BASE}/status`;
+  log(`Polling ${pollTarget} every ${POLL_INTERVAL_MS} ms`, 'info');
+
+  pollTimer = setInterval(async () => {
+    if (!training) { stopPolling(); return; }
+
+    // silent=true: apiFetch won't log every successful tick, only errors
+    const { ok, status, data } = await apiFetch('/status', {
+      timeout: 2500,
+      silent:  true,         // suppress per-tick request logs
+      logKey:  'poll',       // shared throttle bucket for all poll errors
+    });
+
+    if (!ok) {
+      consecutiveErrors++;
+      // Throttle handles logging: fires on first error, suppresses repeats,
+      // flushes a summary after 10 s. apiFetch already called throttle.fire()
+      // via its internal path — here we just update the counter and update UI.
+      if (consecutiveErrors === 1) {
+        const target = SIMULATION_MODE ? '[Simulation]' : `${API_BASE}/status`;
+        log(`Backend unreachable — polling continuing (${target})`, 'err');
+        setStatus('disconnected');
+      } else if (consecutiveErrors % 30 === 0) {
+        // Every 30 s remind the user training may have been interrupted
+        log(`Still unreachable after ${consecutiveErrors} s — check server`, 'warn');
+      }
+      return;
+    }
+
+    // Backend responded — clear error state if we were in an error run
+    if (consecutiveErrors > 0) {
+      log(`← Backend recovered after ${consecutiveErrors} failed poll(s)`, 'success');
+      consecutiveErrors = 0;
+      throttle.clear('poll');
+      if (training) setStatus('training');
+    }
+
+    // Ingest only if episode has advanced (dedup)
+    const ep = data.episode ?? 0;
+    if (ep > lastIngestedEp && ep > 0) {
+      lastIngestedEp = ep;
+      // Log a plain summary every 5 episodes (ingestEpisode adds a structured row on same cadence)
+      if (ep % 5 === 0 || ep <= 3) {
+        log(`← ${status} ep=${ep}  r=${data.reward?.toFixed(1)??'?'}  ε=${data.epsilon?.toFixed(3)??'?'}`, 'info');
+      }
+      ingestEpisode({
+        type:           'episode',
+        episode:        ep,
+        total_episodes: data.total_episodes ?? maxEpisodes,
+        reward:         data.reward         ?? null,
+        avg_wait:       data.avg_wait       ?? null,
+        throughput:     data.throughput     ?? null,
+        epsilon:        data.epsilon        ?? null,
+        loss:           data.loss           ?? null,
+      });
+    }
+
+    // Terminal states
+    if (data.status === 'completed') {
+      log('Training complete.', 'success');
+      setStatus('completed'); markChartsCompleted(); training = false; stopPolling();
+    } else if (data.status === 'stopped') {
+      log('Training stopped by server.', 'warn');
+      setStatus('connected'); training = false; stopPolling();
+    } else if (data.status === 'error') {
+      log(`Backend training error: ${data.error ?? 'unknown'}`, 'err');
+      setStatus('connected'); training = false; stopPolling();
+    }
+
+  }, POLL_INTERVAL_MS);
+}
+
+// ── WebSocket stub — Flask backend has no /ws endpoint
+function connectWS() {
+  log('WebSocket not supported on Flask backend — using HTTP polling.', 'warn');
+}
+
+// ── Train / Stop ──────────────────────────────────────
+async function startTraining() {
+  if (training) {
+    log('Training already in progress — click Stop first.', 'warn');
+    return;
+  }
+
+  const algo      = document.getElementById('algo-select').value;
+  const lr        = parseFloat(document.getElementById('lr-val').textContent);
+  const gamma     = parseFloat(document.getElementById('gamma-val').textContent);
+  const episodes  = parseInt(document.getElementById('eps-val').textContent);
+  const max_steps = parseInt(document.getElementById('steps-val').textContent);
+
+  lastIngestedEp    = -1;
+  consecutiveErrors = 0;
+  throttle.clear('poll');
+  training    = true;
+  maxEpisodes = episodes;
+  resetCharts();
+  setStatus('training');
+
+  const body = { algorithm: algo, learning_rate: lr, gamma, episodes, max_steps };
+
+  const { ok, status, data, error } = await apiFetch('/train', {
+    method:  'POST',
+    json:    body,
+    timeout: 8000,
+    logKey:  'train-start',
+  });
+
+  if (!ok) {
+    log(`Training failed — ${error}`, 'err');
+    setStatus('disconnected');
+    training = false;
+    return;
+  }
+
+  log(`← ${status} Session started — id: ${data?.session_id ?? 'n/a'}`, 'success');
+  log(`${data?.episodes ?? episodes} episodes · max_steps ${data?.max_steps ?? max_steps}`, 'info');
+  startPolling();
+}
+
+async function stopTraining() {
+  training = false;
+  stopPolling();
+
+  const { ok, status } = await apiFetch('/train/stop', {
+    method:  'POST',
+    timeout: 5000,
+    logKey:  'train-stop',
+  });
+
+  log(
+    ok ? `← ${status} Stop acknowledged.`
+       : `Stop request failed — backend may be unreachable.`,
+    ok ? 'warn' : 'err'
+  );
+
+  // Backend is still running (just not training) — show Connected, not Disconnected
+  setStatus('connected');
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Flask server dependencies
+# Development + production (Render/Railway/Fly)
+flask==3.0.3
+flask-cors==4.0.1
+gunicorn==22.0.0          # WSGI server for production (Render uses this)
+numpy==1.26.4
+
+# PyTorch — CPU-only build keeps the slug small on Render free tier.
+# Pin the index URL in render.yaml / Procfile (see deployment guide).
+torch==2.4.1+cpu ; sys_platform != "darwin"
+torch==2.4.1     ; sys_platform == "darwin"
