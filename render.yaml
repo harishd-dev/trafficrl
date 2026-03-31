@@ -3,6 +3,7 @@ services:
     name: trafficrl-api
     runtime: python
     region: oregon
+    pythonVersion: 3.10.14
 
     buildCommand: |
       pip install --upgrade pip
@@ -12,9 +13,5 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
 
     healthCheckPath: /health
-
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.10.14"
 
     plan: free
