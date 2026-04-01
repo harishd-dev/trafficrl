@@ -9,6 +9,8 @@ WS    /ws/training    — real-time episode stream (JSON per episode)
 
 from __future__ import annotations
 
+import traceback
+
 import asyncio
 import logging
 import uuid
@@ -162,10 +164,11 @@ async def start_training(
     db:     AsyncSession = Depends(get_db),
 ) -> TrainResponse:
     global _agent, _session_id, _training_task, _status
-
+    print("🚀 TRAIN START CALLED")
     # Allow only one concurrent session
     if _training_task and not _training_task.done():
         raise HTTPException(409, "A training session is already running. POST /train/stop first.")
+    return {"status": "training started"}
 
     _agent      = _build_agent(req)
     _session_id = str(uuid.uuid4())

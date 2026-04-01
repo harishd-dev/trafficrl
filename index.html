@@ -2595,8 +2595,8 @@ async function startTraining() {
     return;
   }
 
-  log(`← ${status} Session started — id: ${data?.session_id ?? 'n/a'}`, 'success');
-  log(`${data?.episodes ?? episodes} episodes · max_steps ${data?.max_steps ?? max_steps}`, 'info');
+  log(`✔ ${data?.status ?? 'started'} — session: ${data?.session_id ?? 'n/a'}`, 'success');
+  log(`Episodes: ${episodes} · max_steps: ${max_steps}`, 'info');
   startPolling();
 }
 
