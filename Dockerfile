@@ -2,16 +2,19 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system deps needed by psycopg2 & torch
+# Install only what's needed, then REMOVE it later
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc libpq-dev && \
+    gcc libpq-dev && \
+    pip install --upgrade pip && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# 🔥 remove build tools AFTER install
+RUN apt-get purge -y gcc && apt-get autoremove -y
 
-EXPOSE 8000
+COPY . .
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
